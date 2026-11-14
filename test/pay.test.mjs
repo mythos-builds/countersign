@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
-import { parseBch, formatBch, paymentUri, paidTo, buildPayment, scanWallet, signP2pkh, resolveName, DUST } from "../lib/index.mjs";
+import { parseBch, formatBch, paymentUri, paidTo, buildPayment, buildCommitment, scanWallet, signP2pkh, resolveName, DUST } from "../lib/index.mjs";
 
 const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
 
@@ -118,4 +118,16 @@ test("names: NIP-05 lookups use the exact name, no redirects, and check the key"
   await assert.rejects(resolveName("bob@example.com", { fetchImpl }), /doesn't list the name/);
   await assert.rejects(resolveName("bad@example.com", { fetchImpl }), /doesn't list the name/);
   await assert.rejects(resolveName("x@down.example", { fetchImpl: async () => ({ ok: false, status: 404 }) }), /answered 404/);
+});
+
+test("a commitment from a wallet: fee sized for an ECDSA signer, WizardConnect paths and outpoints", () => {
+  const key = bchKey();
+  const npub = nip19.npubEncode(getPublicKey(generateSecretKey()));
+  const c = buildCommitment({ address: key.address, npub, coins: [coin(key, 9_773n, { path: ["change", 0] })] });
+  assert.deepEqual(c.inputPaths, [[0, "change", 0]]);
+  assert.equal(L.binToHex(c.sourceOutputs[0].outpointTransactionHash), L.binToHex(c.transaction.inputs[0].outpointTransactionHash));
+  const signed = signP2pkh(c.transaction, c.sourceOutputs, key.priv);
+  assert.equal(L.createVirtualMachineBch(true).verify({ sourceOutputs: c.sourceOutputs, transaction: signed }), true);
+  assert.ok(c.fee >= BigInt(L.encodeTransaction(signed).length) + 8n, "covers 8 more bytes than a Schnorr signature");
+  assert.equal(buildCommitment({ address: key.address, npub, coins: [{ tx_hash: "11".repeat(32), tx_pos: 0, value: 5_000 }] }).inputPaths, null);
 });
