@@ -105,14 +105,29 @@ function asAddress(raw) {
   return null;
 }
 
+/** Shaped like a cash address but not one we can use: why, in words. */
+function addressProblem(raw) {
+  const text = raw.replace(/\?.*$/, "").toLowerCase();
+  if (!/^((bitcoincash|bchtest):)?[qpzr][02-9ac-hj-np-z]{41}$/.test(text)) return null;
+  const d = L.decodeCashAddress(text.includes(":") ? text : `bitcoincash:${text}`);
+  return typeof d === "string" ? "That address has a typo: its checksum doesn't match." : "Only plain (P2PKH) addresses can carry a name for now; this one is a script address.";
+}
+
 async function showName(raw, me) {
-  fill(view, h("section", { class: "card loading" }, spinner(),
-    h("div", {}, h("b", {}, "Checking this name…"),
-      h("p", { class: "muted", style: "margin:0" }, "Its claim on Nostr relays, its commitment on the Bitcoin Cash chain."))));
   const address = asAddress(raw);
+  fill(view, h("section", { class: "card loading" }, spinner(),
+    h("div", {}, h("b", {}, address ? "Looking up this address…" : "Checking this name…"),
+      h("p", { class: "muted", style: "margin:0" }, address
+        ? "Names that claim it on Nostr relays, commitments in its history on the Bitcoin Cash chain."
+        : "Its claim on Nostr relays, its commitment on the Bitcoin Cash chain."))));
   let who = null;
   if (!address) {
-    try { who = await resolveName(raw); } catch (e) { if (me === nav) showHome(e.message, raw); return; }
+    const problem = addressProblem(raw);
+    if (problem) { if (me === nav) showHome(problem, raw); return; }
+    try { who = await resolveName(raw); } catch (e) {
+      if (me === nav) showHome(e.code === "unrecognized" ? "Paste an npub, a name@domain, a Nostr profile link or a BCH address." : e.message, raw);
+      return;
+    }
   }
   const nostr = relayReader();
   let result, profile, servers = [];

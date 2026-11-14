@@ -100,7 +100,12 @@ test("names: npub, nprofile, hex, nostr: links and profile URLs", async () => {
   const nprofile = nip19.nprofileEncode({ pubkey: pk, relays: ["wss://relay.example.com", "http://not-a-relay"] });
   assert.deepEqual((await resolveName(nprofile)).relays, ["wss://relay.example.com"]);
   await assert.rejects(resolveName(npub.slice(0, -1) + (npub.endsWith("q") ? "p" : "q")), /checksum/);
-  await assert.rejects(resolveName("hello there"), /Paste an npub/);
+  await assert.rejects(resolveName("hello there"), (e) => e.code === "unrecognized" && /Paste an npub/.test(e.message));
+  // A domain that is down or refuses browsers: fetch only says « Failed to fetch », the message says it in words.
+  const refused = async () => { throw new TypeError("Failed to fetch"); };
+  await assert.rejects(resolveName("bob@example.com", { fetchImpl: refused }), /Couldn't look up bob@example\.com: no answer \(no Nostr names there/);
+  const notJson = async () => ({ ok: true, json: async () => JSON.parse("<html>") });
+  await assert.rejects(resolveName("bob@example.com", { fetchImpl: notJson }), /isn't a list of Nostr names/);
 });
 
 test("names: NIP-05 lookups use the exact name, no redirects, and check the key", async () => {
