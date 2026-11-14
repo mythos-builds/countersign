@@ -301,8 +301,9 @@ function qrRail(r, amount) {
 
 /** A WizardConnect session drawn in `el`: QR and phone link, then onReady(dapp) once the wallet has shared its public keys. */
 function connectWallet(el, onReady) {
-  let dapp, relay, readyOnce;
+  let dapp, relay, readyOnce, stall;
   function stop() {
+    clearTimeout(stall);
     try { dapp?.sendDisconnect("page closed").catch(() => {}); } catch { /* not connected */ }
     relay?.cleanup();
     dapp?.destroy();
@@ -316,11 +317,14 @@ function connectWallet(el, onReady) {
     dapp.attachRelay(relay);
     const qr = h("div", { class: "qr" });
     qr.innerHTML = renderSVG(relay.qrUri);
+    const waiting = h("p", { class: "muted" }, "Waiting for your wallet…");
     fill(el, qr, h("p", {}, "Scan this with your wallet app."),
       // iOS knows no wiz:// scheme (Paytaca registers none: 2026-11-14), so a phone gets the link to paste.
       h("p", {}, "On this phone? ", copyButton(relay.uri, "Copy the connection link"), " and paste it in your wallet (Paytaca: Apps → WizardConnect → Paste URL), or ", h("a", { href: relay.uri }, "open it directly"), "."),
-      h("p", { class: "muted" }, "Waiting for your wallet…"));
+      waiting);
     const d = dapp;
+    // WizardConnect gives up silently when a key exchange stalls (« Key exchange timed out » in the console): offer a fresh code.
+    stall = setTimeout(() => { if (!readyOnce && dapp === d) waiting.append(" Stuck? ", h("button", { type: "button", class: "link", onclick: start }, "Get a fresh code")); }, 45_000);
     d.on("walletready", () => { if (!readyOnce) { readyOnce = true; onReady(d); } });
     d.on("disconnect", () => fill(el, h("p", {}, "The wallet disconnected."), h("button", { type: "button", class: "primary", onclick: start }, "Connect again")));
   }

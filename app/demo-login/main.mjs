@@ -149,14 +149,18 @@ function connectWallet(el, onReady, again) {
   let ready = false, stopped = false;
   const qr = h("div", { class: "qr" });
   qr.innerHTML = renderSVG(relay.qrUri);
+  const waiting = h("p", { class: "quiet" }, "Waiting for your wallet…");
   el.replaceChildren(qr, h("p", {}, "Scan this with your wallet app (Paytaca, Cashonize)."),
     h("p", {}, "On this phone? ", copyButton(relay.uri, "Copy the connection link"), " and paste it in your wallet (Paytaca: Apps → WizardConnect → Paste URL), or ", h("a", { href: relay.uri }, "open it directly"), "."),
-    h("p", { class: "quiet" }, "Waiting for your wallet…"));
+    waiting);
+  // WizardConnect gives up silently when a key exchange stalls (« Key exchange timed out » in the console): offer a fresh code.
+  const stall = setTimeout(() => { if (!ready && !stopped) waiting.append(" Stuck? ", h("button", { type: "button", class: "link", onclick: again }, "Get a fresh code")); }, 45_000);
   dapp.on("walletready", () => { if (!ready) { ready = true; onReady(dapp); } });
   dapp.on("disconnect", () => { if (!stopped) el.replaceChildren(h("p", {}, "The wallet disconnected."), h("button", { onclick: again }, "Connect again")); });
   return () => {
     if (stopped) return;
     stopped = true;
+    clearTimeout(stall);
     // Let the goodbye (and any message still on its way to a slower relay) leave before the sockets close.
     const bye = Promise.resolve().then(() => dapp.sendDisconnect("done")).catch(() => {});
     Promise.race([bye, new Promise((r) => setTimeout(r, 1500))]).finally(() => { relay.cleanup(); dapp.destroy(); });
