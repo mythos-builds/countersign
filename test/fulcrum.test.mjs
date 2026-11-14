@@ -7,6 +7,7 @@ import { fulcrumChain } from "../lib/index.mjs";
 class FakeSocket {
   static OPEN = 1;
   static made = [];
+  static pings = 0;
   readyState = 0;
   silent = false;
   constructor(url) {
@@ -17,6 +18,7 @@ class FakeSocket {
   send(text) {
     if (this.readyState !== 1 || this.silent) return; // like a browser on a closed socket: the message is dropped
     const { id, method } = JSON.parse(text);
+    if (method === "server.ping") FakeSocket.pings++;
     const result = method === "blockchain.headers.get_tip" ? { height: 977_400, hex: "" } : ["fake", "1.4"];
     queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id, result }) }));
   }
@@ -73,4 +75,18 @@ test("a closed reader stays closed", async (t) => {
   const chain = await fakeChain(t);
   chain.close();
   await assert.rejects(chain.getTipHeight(), /closed/);
+});
+
+test("quiet sockets are pinged each minute, and one that stops answering is closed by its ping", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] }); // timeouts stay real (200 ms here)
+  const chain = await fakeChain(t);
+  FakeSocket.pings = 0;
+  t.mock.timers.tick(60_000);
+  assert.equal(FakeSocket.pings, 2, "one ping per server");
+  FakeSocket.made[0].silent = true; // the server went away without closing the socket
+  t.mock.timers.tick(60_000);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(FakeSocket.made[0].readyState, 3, "closed by the ping that got no answer");
+  assert.equal(FakeSocket.made[1].readyState, 1);
+  assert.equal(await quick(() => chain.getTipHeight()), 977_400);
 });
