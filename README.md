@@ -165,7 +165,7 @@ node scripts/bind.mjs --wif-file <f> --nostr-key-file <f> [--chipnet] [--dry-run
 ## Limits, said plainly
 
 - P2PKH addresses only for now; P2SH and multisig are not covered.
-- Binding in the browser needs a wallet that speaks WizardConnect. Paytaca paid through the page on mainnet (November 14). Cashonize and our own reference wallet also sign the current request format (November 14: a test signature on a made-up coin, never broadcast).
+- Binding in the browser needs a wallet that speaks WizardConnect. Paytaca paid through the page and bound a name on mainnet (November 14). Cashonize and our own reference wallet also sign the current request format (November 14: a test signature on a made-up coin, never broadcast). On an iPhone, Paytaca opens no `wiz://` link, so the page offers the connection link to paste in Paytaca (Apps → WizardConnect → Paste URL); that path is not yet tested end to end.
 - Wallets show the data output as raw bytes, so the page says in words what the wallet is asked to sign.
 - Relays or servers that are down or hiding data can make a bound name look unbound. They cannot make a false binding pass.
 - The demo app runs its "server" in the page, labelled as such, so both sides can be watched. The Node example is a real server.
