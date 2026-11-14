@@ -1,4 +1,4 @@
-// The site (spec §7, §8): #/<name> pays a bound name, #/bind binds yours. Every check runs in this browser.
+// The site (spec §7, §8): #/<name> pays a bound name, #/bind binds yours, #/wall lists the names bound here. Every check runs in this browser.
 import * as L from "@bitauth/libauth";
 import { renderSVG } from "uqr";
 import { initiateDappRelay } from "@wizardconnect/core";
@@ -7,7 +7,7 @@ import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwal
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
   resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
-  buildPayment, buildCommitment, buildClaim, findByAddress, decodeP2pkhAddress, npubToHex, DEFAULT_RELAYS, DUST,
+  buildPayment, buildCommitment, buildClaim, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
 } from "../lib/index.mjs";
 
 const PROJECT = "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95";
@@ -62,6 +62,7 @@ function route() {
   try { raw = decodeURIComponent(raw); } catch { /* keep it as typed */ }
   raw = raw.trim();
   if (raw === "bind") showBind();
+  else if (raw === "wall") showWall(me);
   else if (raw) showName(raw, me);
   else showHome();
   window.scrollTo(0, 0);
@@ -86,7 +87,8 @@ function showHome(error, value = "") {
       input, h("button", { type: "submit", class: "primary" }, "Find")),
     error ? h("p", { class: "error", role: "alert" }, error) : null,
     h("p", { class: "try" }, "Try it with ", h("a", { href: `#/${PROJECT}` }, "Countersign's own name"), "."),
-    h("p", { class: "try" }, "Have a Nostr name? ", h("a", { href: "#/bind" }, "Bind it to your Bitcoin Cash address"), " in two signatures.")));
+    h("p", { class: "try" }, "Have a Nostr name? ", h("a", { href: "#/bind" }, "Bind it to your Bitcoin Cash address"), " in two signatures."),
+    h("p", { class: "try" }, "Who's here already? ", h("a", { href: "#/wall" }, "See the wall"), ".")));
   if (!matchMedia("(pointer: coarse)").matches) input.focus();
 }
 
@@ -431,6 +433,7 @@ function showBind() {
     return { el, body, set: (...kids) => fill(body, ...kids), state: (s) => { el.className = `step ${s}`; } };
   };
   const s1 = step("Your Nostr name"), s2 = step("Your Bitcoin Cash wallet"), s3 = step("Sign the commitment"), s4 = step("Publish the claim");
+  let listMe = true; // the claim's wall tag (spec §7)
   [s2, s3, s4].forEach((s) => s.set(h("p", { class: "muted" }, "After the step above.")));
   s1.state("active");
   fill(view,
@@ -508,6 +511,8 @@ function showBind() {
     s3.state("active");
     s3.set(h("p", {}, "A small transaction from that address, with one note on chain: « Verifying that I control the following Nostr public key: ", h("code", {}, shortKey(id.npub)), " ». No payment to anyone: ",
       `the network fee is ${built.fee} satoshis and the rest comes back to the same address.`),
+    h("label", { class: "check" }, h("input", { type: "checkbox", checked: listMe, onchange: (e) => { listMe = e.target.checked; } }),
+      h("span", {}, "List my name on the public ", h("a", { href: "#/wall", target: "_blank" }, "wall"), ". Either way the binding itself is public: anyone can find it by name or by address.")),
     h("button", { type: "button", class: "pay", onclick: sign }, "Sign in my wallet"));
   }
 
@@ -531,7 +536,7 @@ function showBind() {
     const reader = relayReader();
     try {
       const [{ claim: current }, outbox] = await Promise.all([reader.fetchClaim(id.pubkey), reader.writeRelays(id.pubkey).catch(() => [])]);
-      const event = verifiedCopy(await id.sign(buildClaim(current, address, txid)));
+      const event = verifiedCopy(await id.sign(buildClaim(current, address, txid, { wall: listMe })));
       if (!event || event.pubkey !== id.pubkey) throw new Error("the signed claim doesn't verify for this key");
       const targets = [...new Set([...outbox.slice(0, 5), ...DEFAULT_RELAYS])];
       const extra = [];
@@ -550,11 +555,54 @@ function showBind() {
       s4.set(h("p", {}, `Claim published on ${accepted.length} of ${targets.length} relays: ${accepted.map((u) => new URL(u).hostname).join(", ")}.`),
         h("div", { class: "status ok" }, h("b", {}, "Your pay link"), h("code", {}, link),
           h("p", { style: "margin:0.5rem 0 0" }, copyButton(link, "Copy the link"), " · ", h("a", { href: `#/${id.npub}` }, "Open it"))),
-        h("p", { class: "muted" }, "It shows « new » until the commitment is in a block, usually within minutes."));
+        h("p", { class: "muted" }, "It shows « new » until the commitment is in a block, usually within minutes."),
+        listMe ? h("p", {}, h("a", { href: "#/wall" }, "See your name on the wall")) : null);
     } catch (e) {
       s4.set(h("p", { class: "error" }, `Not published: ${e.message || e}`), h("button", { type: "button", class: "pay", onclick: publish }, "Try again"));
     } finally {
       reader.close();
     }
   }
+}
+
+// ── The wall ─────────────────────────────────────────────────────────────────
+
+/** Names bound here that chose to be listed. Relays only suggest who is there; this browser checks each one first. */
+async function showWall(me) {
+  const list = h("ul", { class: "wall card", hidden: true });
+  const note = h("div", { class: "card loading" }, spinner(), h("b", {}, "Checking each name…"));
+  fill(view, h("section", { class: "hero small" }, h("h1", {}, "The wall"),
+    h("p", { class: "lede" }, "Nostr names bound to a Bitcoin Cash address with Countersign, newest first. Relays only suggest who is here: your browser checks both signatures of every name before it shows it.")),
+  list, note, h("p", { class: "try" }, "Your name here? ", h("a", { href: "#/bind" }, "Bind it"), " in two signatures."));
+  const entry = (r, p) => {
+    const name = p?.name ?? shortKey(r.npub);
+    const avatar = p?.picture
+      ? h("img", { class: "avatar", src: p.picture, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.target.replaceWith(initial(name)) })
+      : initial(name);
+    return h("li", { class: "who" }, avatar,
+      h("div", { class: "grow" }, h("b", {}, name), r.warnings.includes("new") ? h("span", { class: "badge" }, "new") : null,
+        h("p", { class: "npub" }, shortKey(r.address.replace(/^bitcoincash:/, "")))),
+      h("a", { class: "button", href: `#/${r.npub}` }, "Pay"));
+  };
+  // Each name appears as soon as it passes, in its place (newest first).
+  const nostr = relayReader();
+  const shown = [], pending = [];
+  const add = async (r, rank) => {
+    const profile = await nostr.fetchProfile(r.pubkey).catch(() => null);
+    if (me !== nav) return;
+    shown[rank] = entry(r, profile);
+    list.hidden = false;
+    fill(list, shown.filter(Boolean));
+  };
+  try {
+    await listWall({ nostr, chain: await chain(), onRow: (r, rank) => pending.push(add(r, rank)) });
+    await Promise.all(pending);
+  } catch (e) {
+    if (me === nav) fill(note, h("p", { class: "error", role: "alert" }, `Couldn't read the wall: ${e.message}`), h("button", { type: "button", onclick: route }, "Try again"));
+    return;
+  } finally {
+    nostr.close();
+  }
+  if (me !== nav) return;
+  if (shown.some(Boolean)) note.remove(); else fill(note, "No one is on the wall yet.");
 }

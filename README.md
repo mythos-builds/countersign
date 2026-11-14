@@ -21,7 +21,7 @@ The site is static files. Every check runs in your browser; relays and public Bi
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
 | 3 | Discovery without a central database | The search box on the [site](https://mythos-builds.github.io/countersign/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
 | 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. |
-| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 41 tests. |
+| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 43 tests. |
 
 Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (a newer commitment from the same address supersedes the older one), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
 
@@ -72,6 +72,7 @@ Relays and servers can hide data, never forge it: signatures, hashes and the vir
 
 - **By name:** the site takes an npub, an nprofile (its relay hints are used), a `nostr:` link, 64-hex or `name@domain` (NIP-05, no redirects followed).
 - **By address:** two independent roads, the relays (a `#i` filter on kind 10011, which relays index) and the chain alone (the commitments in the address history name their npub). Every candidate goes through the full check; the newest live commitment wins.
+- **The wall** ([#/wall](https://mythos-builds.github.io/countersign/#/wall)): names bound here that chose to be listed (the claim carries `["t", "countersign"]`; the bind page asks, ticked by default, and either way the binding itself is public). Relays only suggest who is there: each name's newest claim must still carry the tag, then its binding goes through the full check, and names appear one by one as they pass (`listWall`).
 
 ## Sign-in to another app (challenge-response)
 
@@ -118,7 +119,7 @@ Node 22 or newer (the Fulcrum client uses the built-in WebSocket).
 git clone https://github.com/mythos-builds/countersign
 cd countersign
 npm ci
-npm test              # 41 tests, offline
+npm test              # 43 tests, offline
 npm run dev           # the site and the demo app on a local server
 npm run build         # static build into dist/ (any static host works)
 ```

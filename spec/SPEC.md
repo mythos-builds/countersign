@@ -49,6 +49,8 @@ Result: `{status, npub, address, txid, confirmations, boundSince, warnings, reas
   - the chain alone: the last 50 transactions of the address history (Fulcrum `blockchain.address.get_history`); each tagged data output names a candidate npub.
   Every candidate goes through §5 with the address fixed. Of the `verified`/`pending` ones, the newest commitment in the address history wins; otherwise a `superseded` one, otherwise an `invalid` one with its reason; `null` when no candidate is found. The result says which roads found it (`via`).
 
+- **The wall** (`listWall`): relay filter `{"kinds":[10011], "#t":["countersign"]}`, newest claim per author. A relay only suggests a name: its newest claim, read from its own relays too, must still carry the tag (a person leaves the wall by publishing a claim without it), then the binding goes through §5. Only `verified` and `pending` names are shown, newest claim first, at most 30, four checks at a time.
+
 ## 8. Paying a name
 - **WizardConnect rail**: the page builds the payment from the payer's own coins (found from the wallet's public keys), the wallet signs and broadcasts (`broadcast: true`, said in words on the page). The page checks the signed transaction has exactly the outputs it built before sending a copy itself.
 - **Plain rail**: a `bitcoincash:` payment link / QR for any wallet; « paid » detected live through a Fulcrum address subscription.

@@ -5,6 +5,7 @@ import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
   buildCommitment, signP2pkh, dataOutputBytecode, readCommitment, buildClaim, verifyBinding, findByAddress, TAG, NIP39_WORDING,
+  listWall, onWall,
 } from "../lib/index.mjs";
 
 const T0 = 1_700_000_000; // block time of every synthetic header
@@ -279,3 +280,25 @@ test("discovery by address: a rebound address gives its newest name, a stranger'
   assert.equal(r.npub, second.id.npub);
 });
 
+
+test("the wall lists a name only while its newest claim keeps the tag and its binding verifies", async () => {
+  const chain = memoryChain();
+  const listed = bind(chain); // bound through the page: listed by default
+  const hidden = bind(chain); // chose not to be listed
+  const unlisted = finalizeEvent(buildClaim(null, hidden.key.address, hidden.txid, { wall: false }), hidden.id.sk);
+  const left = bind(chain); // listed once, then left the wall
+  const leftNow = finalizeEvent(buildClaim(left.claim, left.key.address, left.txid, { wall: false }), left.id.sk);
+  const stranger = bind(chain); // a tagged claim pointing at someone else's commitment
+  const forged = finalizeEvent(buildClaim(null, stranger.key.address, listed.txid), nostrKey().sk);
+  const nostr = {
+    wallClaims: async () => [listed.claim, unlisted, left.claim, forged].filter(onWall),
+    fetchClaim: async (pk) => ({ claim: [listed.claim, unlisted, leftNow, forged].find((c) => c.pubkey === pk) ?? null }),
+  };
+  assert.equal(onWall(unlisted), false);
+  const seen = [];
+  const rows = await listWall({ nostr, chain, now: T0 + 3 * 86400, onRow: (r) => seen.push(r.npub) });
+  assert.deepEqual(seen, [listed.id.npub]);
+  assert.deepEqual(rows.map((r) => r.npub), [listed.id.npub]);
+  assert.equal(rows[0].status, "verified");
+  assert.equal(rows[0].address, listed.key.address);
+});

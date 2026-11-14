@@ -93,3 +93,12 @@ details li { margin: 0.35rem 0; overflow-wrap: anywhere; }
 .step-body .qr { justify-self: center; }
 .step-body .status { margin: 0; width: 100%; }
 
+.wall { list-style: none; padding: 0.3rem 1.4rem; }
+.wall li { padding: 0.9rem 0; border-bottom: 1px solid var(--line); }
+.wall li:last-child { border-bottom: none; }
+.wall .avatar { width: 44px; height: 44px; font-size: 1.15rem; }
+.wall b { overflow-wrap: anywhere; }
+.grow { flex: 1; min-width: 0; }
+.badge { display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.5rem; border-radius: 999px; background: var(--code); color: var(--muted); font-size: 0.75rem; vertical-align: middle; }
+.check { display: flex; gap: 0.6rem; align-items: flex-start; margin: 0.9rem 0; font-size: 0.92rem; color: var(--muted); }
+.check input { margin-top: 0.25rem; flex: none; }
