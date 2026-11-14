@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
-  buildCommitment, signP2pkh, dataOutputBytecode, readCommitment, buildClaim, verifyBinding, TAG, NIP39_WORDING,
+  buildCommitment, signP2pkh, dataOutputBytecode, readCommitment, buildClaim, verifyBinding, findByAddress, TAG, NIP39_WORDING,
 } from "../lib/index.mjs";
 
 const T0 = 1_700_000_000; // block time of every synthetic header
@@ -237,3 +237,45 @@ test("the builder never spends a coin that carries tokens", () => {
   assert.deepEqual(transaction.inputs.map((i) => L.binToHex(i.outpointTransactionHash)), [plain.tx_hash]);
   assert.throws(() => buildCommitment({ address: key.address, npub, coins: [token] }), /not enough coins/);
 });
+
+const discoverer = (claims, { relaysIndex = true } = {}) => ({
+  ...nostrOf(...claims),
+  claimsFor: async (address) => (relaysIndex ? claims.filter((c) => c.tags.some((t) => t[0] === "i" && t[1] === address)) : []),
+});
+
+test("discovery by address: found through the relays and through the chain alone", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const both = await findByAddress(b.key.address, { nostr: discoverer([b.claim]), chain, now: T0 + 3 * 86400 });
+  assert.equal(both.status, "verified");
+  assert.equal(both.npub, b.id.npub);
+  assert.deepEqual(both.via.sort(), ["chain", "relays"]);
+  const chainOnly = await findByAddress(b.key.address, { nostr: discoverer([b.claim], { relaysIndex: false }), chain, now: T0 + 3 * 86400 });
+  assert.equal(chainOnly.npub, b.id.npub);
+  assert.deepEqual(chainOnly.via, ["chain"]);
+  assert.equal(await findByAddress(bchKey().address, { nostr: discoverer([]), chain }), null);
+});
+
+test("discovery by address: a rebound address gives its newest name, a stranger's tagged transaction gives none", async () => {
+  const chain = memoryChain();
+  const first = bind(chain, { height: 899_990 });
+  const second = bind(chain, { key: first.key, height: 899_995 });
+  const stranger = bchKey(), strangerId = nostrKey();
+  const coin = fund(chain, stranger);
+  const tx = {
+    version: 2, locktime: 0,
+    inputs: [{ outpointTransactionHash: L.hexToBin(coin.txid), outpointIndex: 0, sequenceNumber: 0, unlockingBytecode: Uint8Array.of() }],
+    outputs: [
+      { lockingBytecode: dataOutputBytecode(strangerId.npub), valueSatoshis: 0n },
+      { lockingBytecode: first.key.lock, valueSatoshis: 546n },
+      { lockingBytecode: stranger.lock, valueSatoshis: 9_000n },
+    ],
+  };
+  const txid = chain.add(signP2pkh(tx, [{ lockingBytecode: stranger.lock, valueSatoshis: coin.satoshis }], stranger.priv));
+  chain.touch(first.key.address, txid, 899_998);
+  const strangerClaim = finalizeEvent(buildClaim(null, first.key.address, txid), strangerId.sk);
+  const r = await findByAddress(first.key.address, { nostr: discoverer([first.claim, second.claim, strangerClaim]), chain, now: T0 + 3 * 86400 });
+  assert.equal(r.status, "verified");
+  assert.equal(r.npub, second.id.npub);
+});
+
