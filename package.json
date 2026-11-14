@@ -1,0 +1,16 @@
+{
+  "name": "countersign",
+  "version": "0.1.0",
+  "description": "Bind a Bitcoin Cash address to a Nostr key, and verify the binding with no server in the middle.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "exports": "./lib/index.mjs",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@bitauth/libauth": "3.1.0-next.8",
+    "nostr-tools": "2.25.4"
+  }
+}

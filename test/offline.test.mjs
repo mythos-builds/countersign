@@ -1,0 +1,239 @@
+// Offline: synthetic transactions with real signatures, signed Nostr events, an in-memory chain. No network.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import * as L from "@bitauth/libauth";
+import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
+import {
+  buildCommitment, signP2pkh, dataOutputBytecode, readCommitment, buildClaim, verifyBinding, TAG, NIP39_WORDING,
+} from "../lib/index.mjs";
+
+const T0 = 1_700_000_000; // block time of every synthetic header
+const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+function bchKey() {
+  let priv;
+  do { priv = rand(32); } while (!L.secp256k1.validatePrivateKey(priv));
+  const pub = L.secp256k1.derivePublicKeyCompressed(priv);
+  const payload = L.hash160(pub);
+  const enc = L.encodeCashAddress({ prefix: "bitcoincash", type: "p2pkh", payload });
+  return { priv, pub, payload, lock: L.encodeLockingBytecodeP2pkh(payload), address: typeof enc === "string" ? enc : enc.address };
+}
+
+function nostrKey(sk = generateSecretKey()) {
+  const pk = getPublicKey(sk);
+  return { sk, pk, npub: nip19.npubEncode(pk) };
+}
+
+function memoryChain({ tip = 900_000 } = {}) {
+  const txs = new Map(), history = new Map();
+  return {
+    txs,
+    add(tx) { const raw = L.encodeTransaction(tx); const txid = L.hashTransaction(raw); txs.set(txid, raw); return txid; },
+    touch(address, txid, height) { if (!history.has(address)) history.set(address, []); history.get(address).push({ tx_hash: txid, height }); },
+    getTx: async (id) => { if (!txs.has(id)) throw new Error("not found"); return txs.get(id); },
+    getHistory: async (address) => history.get(address) ?? [],
+    getTipHeight: async () => tip,
+    getHeader: async () => { const h = new Uint8Array(80); new DataView(h.buffer).setUint32(68, T0, true); return h; },
+  };
+}
+
+const nostrOf = (...claims) => ({ fetchClaim: async (pk) => ({ claim: claims.find((c) => c.pubkey === pk) ?? null }) });
+
+function fund(chain, key, sats = 10_000n) {
+  const txid = chain.add({
+    version: 2, locktime: 0,
+    inputs: [{ outpointTransactionHash: rand(32), outpointIndex: 0, sequenceNumber: 0, unlockingBytecode: Uint8Array.of(0x51) }],
+    outputs: [{ lockingBytecode: key.lock, valueSatoshis: sats }],
+  });
+  return { txid, vout: 0, satoshis: sats };
+}
+
+/** A commitment from key to id, mined at height, plus id's signed claim. mutate runs before signing. */
+function bind(chain, { key = bchKey(), id = nostrKey(), sighash = 0x41, mutate = (t) => t, height = 899_990 } = {}) {
+  const { transaction, sourceOutputs } = buildCommitment({ address: key.address, npub: id.npub, coins: [fund(chain, key)] });
+  const signed = signP2pkh(mutate(transaction), sourceOutputs, key.priv, sighash);
+  const txid = chain.add(signed);
+  chain.touch(key.address, txid, height);
+  return { key, id, txid, signed, claim: finalizeEvent(buildClaim(null, key.address, txid), id.sk) };
+}
+
+const check = (chain, b, npub = b.id.npub, claims = [b.claim]) => verifyBinding(npub, { nostr: nostrOf(...claims), chain, now: T0 + 3 * 86400 });
+const extraData = (npub) => (t) => ({ ...t, outputs: [...t.outputs, { lockingBytecode: dataOutputBytecode(npub), valueSatoshis: 0n }] });
+
+test("a mined binding verifies, with its confirmations and age", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const r = await check(chain, b);
+  assert.equal(r.status, "verified");
+  assert.equal(r.confirmations, 11);
+  assert.equal(r.address, b.key.address);
+  assert.equal(r.txid, b.txid);
+  assert.equal(r.boundSince, T0);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("a commitment still in the mempool is pending and marked new", async () => {
+  const chain = memoryChain();
+  const r = await check(chain, bind(chain, { height: 0 }));
+  assert.equal(r.status, "pending");
+  assert.deepEqual(r.warnings, ["new"]);
+});
+
+for (const [name, sighash] of [["NONE", 0x42], ["SINGLE", 0x43]]) {
+  test(`a signature with sighash ${name} is refused: it doesn't cover every output`, async () => {
+    const chain = memoryChain();
+    const r = await check(chain, bind(chain, { sighash }));
+    assert.equal(r.status, "invalid");
+    assert.match(r.reason, new RegExp(`sighash 0x${sighash.toString(16)}`));
+  });
+}
+
+test("two Countersign data outputs are refused", async () => {
+  const chain = memoryChain();
+  const r = await check(chain, bind(chain, { mutate: extraData(nostrKey().npub) }));
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /more than one/);
+});
+
+test("a transaction without a Countersign data output is refused", async () => {
+  const chain = memoryChain();
+  const other = L.flattenBinArray([Uint8Array.of(0x6a), L.encodeDataPush(L.utf8ToBin("XYZ\0")), L.encodeDataPush(L.utf8ToBin("hello"))]);
+  const r = await check(chain, bind(chain, { mutate: (t) => ({ ...t, outputs: [{ lockingBytecode: other, valueSatoshis: 0n }, t.outputs[1]] }) }));
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /no Countersign data output/);
+});
+
+test("a claim that points at someone else's commitment is refused", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const thief = nostrKey();
+  const claim = finalizeEvent(buildClaim(null, b.key.address, b.txid), thief.sk);
+  const r = await check(chain, b, thief.npub, [claim]);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /another Nostr key/);
+});
+
+test("a server that changes the transaction is caught by its hash", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const forged = L.encodeTransaction({ ...b.signed, locktime: 1 });
+  chain.txs.set(b.txid, forged);
+  const r = await check(chain, b);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /doesn't hash to its id/);
+});
+
+test("a server that changes a parent transaction is caught by its hash", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const parentId = L.binToHex(b.signed.inputs[0].outpointTransactionHash);
+  const parent = L.decodeTransaction(chain.txs.get(parentId));
+  chain.txs.set(parentId, L.encodeTransaction({ ...parent, outputs: [{ ...parent.outputs[0], valueSatoshis: 99_999n }] }));
+  const r = await check(chain, b);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /doesn't hash to its id/);
+});
+
+test("the same private key for BCH and Nostr is refused", async () => {
+  const chain = memoryChain();
+  const key = bchKey();
+  const r = await check(chain, bind(chain, { key, id: nostrKey(key.priv) }));
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /same key/);
+});
+
+test("a claim naming an address that didn't sign the commitment is refused", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const other = bchKey();
+  const claim = finalizeEvent(buildClaim(null, other.address, b.txid), b.id.sk);
+  const r = await check(chain, b, b.id.npub, [claim]);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /no input is signed by this address/);
+});
+
+test("a broken signature is refused by the BCH virtual machine", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const unlock = b.signed.inputs[0].unlockingBytecode.slice();
+  unlock[10] ^= 0xff; // inside the Schnorr signature, not its sighash byte
+  const txid = chain.add({ ...b.signed, inputs: [{ ...b.signed.inputs[0], unlockingBytecode: unlock }] });
+  chain.touch(b.key.address, txid, 899_991);
+  const claim = finalizeEvent(buildClaim(null, b.key.address, txid), b.id.sk);
+  const r = await check(chain, b, b.id.npub, [claim]);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /virtual machine rejects/);
+});
+
+test("anyone can send a tagged transaction TO the address, but it can't supersede the binding", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const stranger = bchKey();
+  const coin = fund(chain, stranger);
+  const tx = {
+    version: 2, locktime: 0,
+    inputs: [{ outpointTransactionHash: L.hexToBin(coin.txid), outpointIndex: 0, sequenceNumber: 0, unlockingBytecode: Uint8Array.of() }],
+    outputs: [
+      { lockingBytecode: dataOutputBytecode(nostrKey().npub), valueSatoshis: 0n },
+      { lockingBytecode: b.key.lock, valueSatoshis: 546n },
+      { lockingBytecode: stranger.lock, valueSatoshis: 9_000n },
+    ],
+  };
+  const txid = chain.add(signP2pkh(tx, [{ lockingBytecode: stranger.lock, valueSatoshis: coin.satoshis }], stranger.priv));
+  chain.touch(b.key.address, txid, 899_995);
+  const r = await check(chain, b);
+  assert.equal(r.status, "verified");
+});
+
+test("a later commitment signed by the same address supersedes the binding", async () => {
+  const chain = memoryChain();
+  const first = bind(chain);
+  const second = bind(chain, { key: first.key, height: 899_995 });
+  const r = await check(chain, first);
+  assert.equal(r.status, "superseded");
+  assert.deepEqual(r.supersededBy, { npub: second.id.npub, txid: second.txid });
+  assert.equal((await check(chain, second)).status, "verified");
+});
+
+test("a claim whose signature doesn't verify is refused", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const r = await check(chain, b, b.id.npub, [{ ...b.claim, content: "edited after signing" }]);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /signature/);
+});
+
+test("the claim merges: other identities kept, one BCH address, a newer timestamp", () => {
+  const now = T0;
+  const current = { created_at: now + 100, content: "", tags: [["i", "github:someone", "gistid"], ["i", "bitcoincash:qold", "a".repeat(64)], ["t", "countersign"]] };
+  const next = buildClaim(current, "bitcoincash:qnew", "b".repeat(64), { now });
+  assert.equal(next.kind, 10011);
+  assert.equal(next.created_at, now + 101);
+  assert.deepEqual(next.tags, [["i", "github:someone", "gistid"], ["i", "bitcoincash:qnew", "b".repeat(64)], ["t", "countersign"]]);
+});
+
+test("the data output fits the 223-byte limit and reads back", () => {
+  const { npub, pk } = nostrKey();
+  const bytecode = dataOutputBytecode(npub);
+  assert.ok(bytecode.length <= 223, `${bytecode.length} bytes`);
+  assert.deepEqual(bytecode.slice(1, 6), L.flattenBinArray([Uint8Array.of(0x04), TAG]));
+  assert.deepEqual(readCommitment({ outputs: [{ lockingBytecode: bytecode, valueSatoshis: 0n }] }), { npub, pubkey: pk });
+});
+
+test("malformed data outputs are refused", () => {
+  const { npub } = nostrKey();
+  const out = (...pushes) => ({ outputs: [{ lockingBytecode: L.flattenBinArray([Uint8Array.of(0x6a), ...pushes.map((p) => L.encodeDataPush(p))]), valueSatoshis: 0n }] });
+  assert.match(readCommitment(out(TAG, L.utf8ToBin(NIP39_WORDING + npub), Uint8Array.of(1))).error, /malformed/);
+  assert.match(readCommitment(out(TAG, L.utf8ToBin("Hi, I am " + npub))).error, /NIP-39 wording/);
+  assert.match(readCommitment(out(TAG, L.utf8ToBin(NIP39_WORDING + "npub1notakey"))).error, /no valid npub/);
+});
+
+test("the builder never spends a coin that carries tokens", () => {
+  const key = bchKey();
+  const { npub } = nostrKey();
+  const plain = { tx_hash: "11".repeat(32), tx_pos: 0, value: 5_000 };
+  const token = { tx_hash: "22".repeat(32), tx_pos: 1, value: 1_000_000, token_data: { category: "33".repeat(32), amount: "100" } };
+  const { transaction } = buildCommitment({ address: key.address, npub, coins: [token, plain] });
+  assert.deepEqual(transaction.inputs.map((i) => L.binToHex(i.outpointTransactionHash)), [plain.tx_hash]);
+  assert.throws(() => buildCommitment({ address: key.address, npub, coins: [token] }), /not enough coins/);
+});
