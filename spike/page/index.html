@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BLAZE spike</title>
+<style>
+  body { font: 16px/1.4 system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; background: #fff; color: #111; }
+  button { font: inherit; padding: .5rem 1rem; margin: .25rem .5rem .25rem 0; }
+  #qr svg { width: 220px; height: 220px; display: block; margin: 1rem 0; }
+  pre { background: #f4f4f4; padding: .75rem; white-space: pre-wrap; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>WizardConnect spike</h1>
+<p>Connect a BCH wallet, then sign one test transaction. The input is fake and nothing is broadcast.</p>
+<button id="connect">Connect a wallet</button>
+<button id="sign" disabled>Sign a test commitment</button>
+<div id="qr"></div>
+<p><a id="open" hidden>Open in wallet app</a></p>
+<pre id="log"></pre>
+<script type="module" src="app.bundle.js"></script>
+</body>
+</html>
