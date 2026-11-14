@@ -21,7 +21,7 @@ The site is static files. Every check runs in your browser; relays and public Bi
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
 | 3 | Discovery without a central database | The search box on the [site](https://mythos-builds.github.io/countersign/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
 | 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. |
-| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 37 tests. |
+| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 41 tests. |
 
 Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (a newer commitment from the same address supersedes the older one), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
 
@@ -104,6 +104,8 @@ For a real deployment: tie each nonce to the browser session that asked for it, 
 - **Wallet app (WizardConnect):** the wallet shares public keys only; the page finds its coins, builds the payment, the wallet shows it and signs. The page checks the wallet signed exactly the outputs it built before sending.
 - **Any wallet (QR):** a `bitcoincash:` payment link; the page sees the payment arrive by itself through a Fulcrum address subscription.
 
+A phone often drops the page's connections while you approve in the wallet app: the page reconnects and looks again as soon as it is shown.
+
 An npub that has not bound cannot be paid, by design: deriving a BCH address from a Nostr key would be the key reuse the bounty forbids.
 
 Coins carrying CashTokens are never spent, by the payment or by the commitment: spending them in a transaction that doesn't carry the tokens on would burn them.
@@ -116,7 +118,7 @@ Node 22 or newer (the Fulcrum client uses the built-in WebSocket).
 git clone https://github.com/mythos-builds/countersign
 cd countersign
 npm ci
-npm test              # 37 tests, offline
+npm test              # 41 tests, offline
 npm run dev           # the site and the demo app on a local server
 npm run build         # static build into dist/ (any static host works)
 ```

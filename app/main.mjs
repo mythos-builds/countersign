@@ -247,8 +247,8 @@ async function watchPayments(address, onPayment) {
     if (!ready) return;
     for (const { tx_hash: txid } of await c.getHistory(address)) {
       if (seen.has(txid)) continue;
-      const tx = L.decodeTransaction(await c.getTx(txid)); // getTx re-hashes against the id
-      seen.add(txid);
+      seen.add(txid); // before any await: overlapping checks (subscription, poll, page shown again) report a payment once
+      const tx = await c.getTx(txid).then(L.decodeTransaction, (e) => { seen.delete(txid); throw e; }); // getTx re-hashes against the id
       const sats = typeof tx === "string" ? 0n : paidTo(tx, address);
       if (sats > 0n) onPayment({ txid, sats });
     }
@@ -257,7 +257,10 @@ async function watchPayments(address, onPayment) {
   (await c.getHistory(address)).forEach((x) => seen.add(x.tx_hash));
   ready = true;
   const poll = setInterval(() => check().catch(() => {}), 20_000);
-  return () => { clearInterval(poll); sub?.stop(); };
+  // Back from paying in the wallet app: look at once (the subscription may have died with the tab in the background).
+  const onShow = () => { if (document.visibilityState === "visible") check().catch(() => {}); };
+  document.addEventListener("visibilitychange", onShow);
+  return () => { clearInterval(poll); sub?.stop(); document.removeEventListener("visibilitychange", onShow); };
 }
 
 function qrRail(r, amount) {
