@@ -1,62 +1,85 @@
-# Countersign binding — draft spec v0
+# Countersign binding — spec v1
 
-*Ideation-week draft, written 2026-11-12 (before the 11-14 kick-off). Moves into the repo's `/spec` on D1 and is declared there as pre-existing design work.*
+*v1, 2026-11-14: implemented in `lib/`, tested in `test/`. v0 was the ideation-week draft of 2026-11-12, kept as it was under the tag `start-2026-11-14`; §12 lists what changed.*
 
 ## 1. Purpose
 Let anyone check, with no server of ours, that **one person controls both a Bitcoin Cash address and a Nostr key**, so that a Nostr name can be paid in BCH on chain, with no custodian and no Lightning. Neither key ever leaves its wallet; no key is reused across the two systems.
 
 ## 2. Terms
-- **npub**: a Nostr public key (NIP-19 form). **Address**: a BCH CashAddress, P2PKH only in v0.
+- **npub**: a Nostr public key (NIP-19 form). **Address**: a BCH CashAddress, P2PKH only in v1. A token-aware address (`z…`) has the same payload and decodes as the same key hash.
 - **Commitment**: a BCH transaction spent from the address that names the npub (the BCH half).
 - **Claim**: the person's NIP-39 identity list, kind 10011, carrying the address and the commitment's txid (the Nostr half).
 - **Binding**: a claim + a commitment that point at each other and both verify.
 
 ## 3. The BCH half: commitment transaction
 1. At least one input spends a P2PKH output locked to the claimed address. Its signature's sighash byte is one of `0x41, 0x61, 0xC1, 0xE1` (every variant that covers all outputs); anything else is refused, so a signature cannot be re-used with another data output.
-2. Exactly one OP_RETURN output: `OP_RETURN <tag: 4 bytes> <sentence>`, where *sentence* is the UTF-8 text of NIP-39's own wording: `Verifying that I control the following Nostr public key: npub1…` (about 128 bytes in total, under the 223-byte relay limit). **Tag proposal: script bytes `43 53 47 00` (« CSG\0 ») = protocol ID `0x00475343`** under the Lokad guideline (pushed as `0x04` + 4 bytes, little-endian, like SLP's « SLP\0 » = `0x00504c53`); in the allowed range (0x10 … 0x0FFFFFFF) and **not in the registry** (`bitcoincashorg/bitcoincash.org` `etc/protocols.csv`, 31 claimed IDs, read 2026-11-12). Claiming it there is a courtesy PR (name, authors, spec URL, optional address) — after the event, under the project identity.
-3. Change goes back to the same address (recommended). The transaction is otherwise ordinary (about 330 bytes, a fraction of a cent).
-4. Coins carrying CashTokens are never spent by the builder (see §10).
+2. Exactly one data output carries the tag: `OP_RETURN <tag: 4 bytes> <sentence>`, exactly two pushes, where *sentence* is the UTF-8 text of NIP-39's own wording: `Verifying that I control the following Nostr public key: npub1…` (about 128 bytes in total, under the 223-byte relay limit). Data outputs without the tag are ignored; two tagged outputs make the transaction invalid as a commitment.
+3. **Tag: script bytes `43 53 47 00` (« CSG\0 ») = protocol ID `0x00475343`**, Lokad style (pushed as `0x04` + 4 bytes, little-endian, like SLP's « SLP\0 » = `0x00504c53`). In the allowed range and not in the registry (`bitcoincashorg/bitcoincash.org` `etc/protocols.csv`, read 2026-11-12); claiming it there is a courtesy PR after the event.
+4. At most **20 inputs**: a verifier fetches every parent, so a commitment cannot make it fetch hundreds.
+5. The builder (`buildCommitment`) spends the address's own coins, puts the data output first and the change back to the same address (at least 546 sat). The fee is 1 sat/byte of the transaction as signed with the largest unlock a wallet may produce (108 bytes: a 73-byte ECDSA signature, a 33-byte key, two push bytes), so it never falls under 1 sat/byte whether the wallet signs with ECDSA or Schnorr. The whole transaction is about 330 bytes.
+6. Coins carrying CashTokens are never spent by the builder (see §10).
 
 ## 4. The Nostr half: claim event
-- Kind **10011** (NIP-39, replaceable), tag `["i", "bitcoincash:<cashaddr>", "<txid>"]`. The `platform:identity` value reads exactly like the address a wallet shows (`bchtest:` on chipnet). Addresses are compared by decoded hash, never as text.
-- The builder **merges** into the person's existing kind 10011 and keeps every other `i` tag.
-- Optional `["t", "countersign"]` puts the person on the public wall.
+- Kind **10011** (NIP-39, replaceable), tag `["i", "bitcoincash:<cashaddr>", "<txid>"]`. The identity reads exactly like the address a wallet shows (`bchtest:` on chipnet) and must match `^(bitcoincash|bchtest):[cashaddr charset]+$`; the txid is 64 lowercase hex. Addresses are compared by decoded hash and prefix, never as text.
+- The builder (`buildClaim`) **merges** into the person's current kind 10011: it keeps every other tag, drops older `bitcoincash`/`bchtest` identities, and dates the new event `max(now, previous + 1)` so it replaces the old one.
+- `["t", "countersign"]` is added by default: it marks bound names for a public directory (no directory page in v1).
+- Published to the person's write relays (kind 10002, up to five) and the five defaults. A name created on the bind page also gets a kind 10002 listing the defaults and, if the person typed one, a kind 0 name.
 
 ## 5. Verification: `verifyBinding(npub[, address])`
 Trusts nothing it is handed.
-1. Read the author's relay list (kind 10002), then fetch the newest kind 10011 by the author from those relays + three defaults; newest `created_at` wins. Verify its signature **on a fresh copy parsed from JSON** (nostr-tools caches « verified » on event objects).
-2. Take the `i` tag(s) with platform `bitcoincash` (or `bchtest`); decode; require P2PKH.
-3. Fetch the transaction by txid from two Fulcrum servers or more; re-hash it; the hash must equal the txid.
-4. Require exactly one OP_RETURN with the tag; parse the npub from the sentence; it must equal the event's author.
-5. Find an input whose unlock is `<sig> <pubkey>` with `hash160(pubkey)` = the address payload and an allowed sighash byte.
-6. Fetch every parent transaction by id, re-hash each, rebuild the source outputs; run the BCH virtual machine (libauth) on the whole transaction. Any failure = invalid.
+1. Read the author's relay list (kind 10002: up to five `r` relays not marked `read`), then fetch the newest kind 10011 by the author from those relays, up to three hints (from an nprofile or a NIP-05 document) and the five defaults. Newest `created_at` wins; on a tie, the lowest id (NIP-01). Verify its signature **on a fresh copy parsed from JSON** (nostr-tools caches « verified » on event objects); author and kind must match.
+2. Take the `bitcoincash` (or `bchtest`) identities; with an `address` given, only the one that names it. Several → the first, with a warning. Decode; require P2PKH.
+3. Fetch the transaction by txid from the Fulcrum servers (all four defaults are connected; each is asked in turn): the bytes must hash to the txid. One honest server suffices; a dishonest one can only fail to answer.
+4. Require exactly one tagged data output, two pushes, the NIP-39 wording; the npub in it must equal the claim's author.
+5. Fetch every parent transaction by id, re-hash each, rebuild the source outputs. Find an input whose source output is locked to the address, whose unlock is `<sig> <pubkey>` with `hash160(pubkey)` = the address payload, and whose sighash byte is allowed (§3.1).
+6. Run the BCH virtual machine (libauth, consensus rules: a mined transaction is valid even if non-standard) on the whole transaction with those source outputs. Any failure = invalid.
 7. Refuse key reuse: the BCH public key's x-coordinate must differ from the Nostr public key.
-8. Confirmations from Fulcrum → `verified` (≥ 1) or `pending` (mempool only, both halves valid).
-9. Supersession: a later commitment from the same address naming another npub, or a newer claim without the tag → `superseded`.
-Result: `{status, npub, address, txid, boundSince, warnings}`; `warnings` includes `new` when the commitment is under 24 h old.
+8. From the address history: confirmations ≥ 1 → `verified`, mempool only → `pending` (both halves valid). `boundSince` = the time in the block header.
+9. Supersession: up to 30 transactions after the commitment in the address history are read; one that passes steps 3–7 for this same address and names another npub makes the binding `superseded`. A transaction merely *sent to* the address cannot pass step 5.
+
+Result: `{status, npub, address, txid, confirmations, boundSince, warnings, reason?, supersededBy?}`. `warnings` includes `new` when the commitment is unconfirmed or under 24 h old, and says so when the address history was unavailable (confirmations and newer bindings then unchecked) or longer than step 9 reads.
 
 ## 6. Statuses
-`verified` · `pending` (payable, shown as new) · `superseded` · `invalid: <reason>`.
+`verified` · `pending` (payable, shown as new) · `superseded` (with the newer npub and txid) · `invalid` (with a reason). A newest claim that names no BCH address means the person unbound: `invalid`, « the newest claim names no BCH address ».
 
 ## 7. Discovery (no indexer of ours)
-- **By npub**: the person's kind 10011.
-- **By address**: relay filter `{"kinds":[10011], "#i":["bitcoincash:q…"]}` (single-letter tag, indexed by relays).
-- **From the chain alone**: the address history (Fulcrum `blockchain.address.get_history`) → commitment → the npub in its data output.
-- Names: `name@domain` resolved through NIP-05, then as above. Every result is re-verified in the browser before it is shown.
+- **By name** (`resolveName`): an npub, an nprofile (its relay hints are used), 64-hex, a `nostr:` link or profile URL holding one, or `name@domain` through NIP-05: `https://domain/.well-known/nostr.json?name=…`, no redirects followed, the document must list that exact name; relay hints are `wss://` only, five at most.
+- **By address** (`findByAddress`), two independent roads:
+  - relays: filter `{"kinds":[10011], "#i":["bitcoincash:q…"]}` (single-letter tag, indexed by relays), keeping claims that name the address exactly;
+  - the chain alone: the last 50 transactions of the address history (Fulcrum `blockchain.address.get_history`); each tagged data output names a candidate npub.
+  Every candidate goes through §5 with the address fixed. Of the `verified`/`pending` ones, the newest commitment in the address history wins; otherwise a `superseded` one, otherwise an `invalid` one with its reason; `null` when no candidate is found. The result says which roads found it (`via`).
 
 ## 8. Paying a name
-- **WizardConnect rail**: the page builds the payment from the payer's own coins (found from the wallet's xpubs), the wallet signs and broadcasts (`broadcast: true`, said in words on the page).
+- **WizardConnect rail**: the page builds the payment from the payer's own coins (found from the wallet's public keys), the wallet signs and broadcasts (`broadcast: true`, said in words on the page). The page checks the signed transaction has exactly the outputs it built before sending a copy itself.
 - **Plain rail**: a `bitcoincash:` payment link / QR for any wallet; « paid » detected live through a Fulcrum address subscription.
 - Paying an npub that has not bound is not possible by design (deriving an address from a Nostr key = the key reuse the bounty forbids).
 
 ## 9. Login (challenge-response, another app)
-NIP-98: the server issues a single-use nonce; the client signs a kind 27235 event with `u` = the URL carrying the nonce and a `method` tag; the server accepts it within 60 s, once, then runs `verifyBinding(npub)` → « signed in as …, pays to … ». A 30-line Node server example ships with the library.
+NIP-98 HTTP auth over a single-use challenge (`lib/login.mjs`).
+1. **Challenge.** `loginGate({ url })` is the app's side; `url` is its login endpoint as people reach it. `challenge()` → `{ url: <endpoint>?nonce=<32 hex>, method: "POST", expiresAt }`. A challenge lives 120 s. Open challenges are kept in the gate's memory; expired ones are dropped when a new one is issued; at most 10 000 are open, past that the oldest goes.
+2. **Answer.** The person's key (NIP-07 extension, remote signer or secret key) signs `{kind: 27235, created_at: now, tags: [["u", <that url>], ["method", "POST"]], content: ""}` (`loginTemplate`), sent to that URL as `Authorization: Nostr <base64 of the JSON event>` (`authorizationHeader`).
+3. **Check** (`check(authorization, {url, method})`, `url` = the absolute URL the request reached), in this order: the header's form · a JSON event · its signature, on a fresh copy · kind 27235 · `created_at` within ±60 s of the app's clock · `u` equals the request URL exactly · `method` matches · the URL's origin and path are the endpoint's and its nonce is open. Then the nonce is spent, and an expired one is refused. → `{pubkey, npub}` or `{error}`. A failure before the nonce step leaves the challenge open for the right answer; a replay finds the nonce spent.
+4. **Who is this?** The app runs `verifyBinding(npub)`: « signed in as …, pays to … ». No identity provider is asked.
+
+The answer is a standard NIP-98 event: one made by nostr-tools' `nip98.getToken` is accepted (tested). Shipped: `examples/login-server.mjs` (node:http, `GET /challenge`, `POST /login`), `examples/login-client.mjs` (signs in, then replays: 401), and `app/demo-login/`, a separate app that imports only the library and nostr-tools.
+
+Deployment notes: tie each nonce to the browser session that asked for it (a cookie), so an answer signs in only that session · rate-limit `challenge()` · several processes need a shared challenge store · serve over HTTPS, so the URL in `u` is the one the person meant.
 
 ## 10. Security
-- Never spend a coin carrying tokens (Fulcrum `exclude_tokens`, then re-check each coin has no `token_data`): tokens left out of the outputs are burned.
+- Never spend a coin carrying tokens (Fulcrum `exclude_tokens`, then each coin is re-checked for token data): tokens left out of the outputs are burned.
 - The wallet shows the data output as raw hex, so the signing prompt says in words what is signed.
-- Relays and Fulcrum servers can hide data, never forge it (signature checks, re-hashing, the VM).
+- Relays and Fulcrum servers can hide data, never forge it (signature checks, re-hashing, the VM). Hiding can make a bound name look unbound; it cannot make a false binding pass.
 - A stolen Nostr key can re-point the claim, but not forge a commitment; « bound since » and the `new` warning are the user's defence. A tricked wallet can only attach its own address.
+- A commitment cannot make a verifier do unbounded work: at most 20 inputs (§3.4), at most 30 later transactions read (§5.9), 50 history entries on the chain road (§7).
+- Profile data shown from kind 0 is reduced to plain strings; pictures are `https://` only.
 
-## 11. Open (none blocks D1)
-Final word on the tag on D1 (proposal in §3) · Paytaca's view on the on-chain proof type · P2SH and token-aware addresses (v1) · rotation screen (the « latest commitment wins » rule already covers it).
+## 11. Open
+Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bindings · a rotation screen (the « latest commitment wins » rule already covers it) · a public directory from the `t` tag · the courtesy PR for `CSG\0` in the protocol registry.
+
+## 12. Changes from v0
+- The tag is final: `CSG\0` (§3.3). New limits: 20 inputs (§3.4), 30 later transactions (§5.9). Data outputs without the tag are ignored (§3.2). The fee rule is written down (§3.5).
+- Five default relays instead of three; relay hints from nprofile and NIP-05 (§5.1).
+- Fulcrum: one hash-checked answer from any server instead of « two servers or more »; the hash makes extra copies unnecessary (§5.3).
+- A newer claim with no BCH address gives `invalid` with its reason, not `superseded` (§6).
+- Discovery by address is specified as two roads that each lead to the full check (§7).
+- Login is implemented: exact rules for the nonce, the window and the order of the checks, plus deployment notes (§9).
