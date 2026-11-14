@@ -20,7 +20,7 @@ The site is static files. Every check runs in your browser; relays and public Bi
 | 1 | Create or connect both identities, keys stay with the user | [#/bind](https://mythos-builds.github.io/countersign/#/bind), steps 1 and 2: your Nostr extension (NIP-07) or a new key made in the browser, whose secret you keep; then your own BCH wallet over WizardConnect, which shares public keys only. No account, no custodian. |
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
 | 3 | Discovery without a central database | The search box on the [site](https://mythos-builds.github.io/countersign/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
-| 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. |
+| 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. The demo app can then ask your wallet to answer too: it signs a one-time code in a transaction that can never be broadcast. |
 | 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 43 tests. |
 
 Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (a newer commitment from the same address supersedes the older one), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
@@ -82,6 +82,7 @@ The demo app and `examples/login-server.mjs` use the library's `loginGate`, whic
 2. The person's Nostr key (extension, remote signer or secret key) signs a kind 27235 event naming that exact URL and the method.
 3. The app checks the signature, the kind, the time (±60 s), the URL and the method, and that the nonce was issued here and not used before. Then it spends the nonce: a replay is refused. A wrong answer leaves the challenge open for the right one.
 4. The app runs `verifyBinding` on the signed-in key: "signed in as …, pays to …". No identity provider is asked.
+5. Optional, the wallet too (in the demo app): `walletChallenge({ npub, address })` asks the wallet behind the bound address to sign a one-time code, with `broadcast: false`. The transaction it signs spends a coin that can never exist (BIP-322's construction, on BCH), so no network accepts it: it moves nothing and costs no fee. `walletCheck(signedHex)` rebuilds what was asked and compares it byte for byte, checks the signature covers every output, runs the BCH virtual machine, and spends the code. Tested end to end with the reference wallet; a real BCH server refuses the signed transaction (« Missing inputs »).
 
 The core of [examples/login-server.mjs](examples/login-server.mjs):
 
@@ -149,7 +150,8 @@ node scripts/bind.mjs --wif-file <f> --nostr-key-file <f> [--chipnet] [--dry-run
 | `fulcrumChain(servers?)` | Read-only chain access: transactions (hash-checked), history, headers, coins, broadcast, address watch |
 | `buildCommitment({ address, npub, coins })` | The unsigned commitment from the address's own coins, for a wallet to sign |
 | `buildClaim(current, address, txid)` | The kind 10011 event to sign, merged into the current one |
-| `loginGate({ url })` | `challenge()` and `check(authorization, { url, method })` |
+| `loginGate({ url })` | `challenge()` and `check(authorization, { url, method })`; the wallet step: `walletChallenge({ npub, address })` and `walletCheck(signedHex)` |
+| `findAddressPath(pubkeyAt, address)` | Where an address sits in a wallet seen through its public keys (receive or change, and its index) |
 | `loginTemplate(challenge)`, `authorizationHeader(event)` | The client's side of a login |
 | `buildPayment`, `scanWallet`, `paidTo`, `paymentUri` | Payments by name |
 

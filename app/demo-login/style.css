@@ -40,7 +40,7 @@ pre { font: 0.72rem/1.45 var(--mono); background: var(--code); padding: 0.75rem;
 .status.pending { color: var(--warn); }
 .label { color: var(--muted); margin: 2rem 0 0.75rem; }
 .talk { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
-.talk > li { border: 1px solid var(--line); border-radius: 16px; padding: 0.9rem 1rem; max-width: 92%; min-width: 0; }
+.talk > li { border: 1px solid var(--line); border-radius: 16px; padding: 0.9rem 1rem; max-width: 92%; min-width: 0; overflow-wrap: anywhere; }
 .talk > li.app { background: var(--card); justify-self: start; border-bottom-left-radius: 4px; }
 .talk > li.you { background: var(--you); justify-self: end; border-bottom-right-radius: 4px; }
 .talk p { margin: 0.4rem 0; }
@@ -54,3 +54,10 @@ pre { font: 0.72rem/1.45 var(--mono); background: var(--code); padding: 0.75rem;
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
 .foot { padding-top: 1.5rem; padding-bottom: 3rem; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--line); }
 .foot a { color: inherit; }
+.card h2 { font-size: 1.3rem; letter-spacing: -0.015em; margin: 0 0 0.5rem; }
+.step { display: grid; gap: 0.6rem; margin-top: 0.9rem; justify-items: start; }
+.step p { margin: 0; }
+.qr { background: #fff; padding: 12px; border-radius: 14px; line-height: 0; }
+.qr svg { width: min(240px, 62vw); height: auto; display: block; }
+button.link { padding: 0.2rem; min-height: 0; border: 0; background: none; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.talk .actions { margin: 0.6rem 0 0.2rem; }
