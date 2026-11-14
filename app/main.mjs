@@ -3,6 +3,7 @@ import * as L from "@bitauth/libauth";
 import { renderSVG } from "uqr";
 import { initiateDappRelay } from "@wizardconnect/core";
 import { DappConnectionManager } from "@wizardconnect/dapp";
+import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwalletv1-serialize";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
   resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
@@ -30,7 +31,6 @@ const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k 
 
 const shortKey = (s) => `${s.slice(0, 12)}…${s.slice(-6)}`;
 const sentence = (s) => (s ? s[0].toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? "" : ".") : "");
-const wire = (o) => JSON.parse(L.stringify(o)); // the relay JSON.stringify()s: bigint and Uint8Array in libauth's extended form
 const spinner = () => h("div", { class: "spinner", role: "status", "aria-label": "Working" });
 const initial = (name) => h("div", { class: "avatar", "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
 const txLink = (txid, label = `transaction ${txid.slice(0, 8)}…`) => h("a", { href: explorer(txid), target: "_blank", rel: "noopener" }, label);
@@ -328,8 +328,16 @@ function connectWallet(el, onReady) {
 
 /** The wallet signs and broadcasts; the page checks it signed exactly what was built, and hands it to the network too. → txid */
 async function signAndSend(dapp, built, userPrompt) {
+  // The protocol's own relay format (hdwalletv1-serialize): the transaction as hex, source outputs with hex fields.
+  // Paytaca reads only this; libauth's extended JSON reached it as zero bytes (2026-11-14).
+  const { inputs, outputs, version, locktime } = built.transaction;
   const res = await dapp.signTransaction({
-    transaction: wire({ transaction: built.transaction, sourceOutputs: built.sourceOutputs, broadcast: true, userPrompt }),
+    transaction: {
+      transaction: transactionToHex(inputs, outputs, version, locktime),
+      sourceOutputs: built.sourceOutputs.map(sourceOutputToRelay),
+      broadcast: true,
+      userPrompt,
+    },
     inputPaths: built.inputPaths,
   });
   if (res.error) throw new Error(res.error);
