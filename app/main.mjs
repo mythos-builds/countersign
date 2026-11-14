@@ -315,7 +315,8 @@ function connectWallet(el, onReady) {
     const qr = h("div", { class: "qr" });
     qr.innerHTML = renderSVG(relay.qrUri);
     fill(el, qr, h("p", {}, "Scan this with your wallet app."),
-      h("a", { class: "button", href: relay.uri }, "Or open the wallet on this phone"),
+      // iOS knows no wiz:// scheme (Paytaca registers none: 2026-11-14), so a phone gets the link to paste.
+      h("p", {}, "On this phone? ", copyButton(relay.uri, "Copy the connection link"), " and paste it in your wallet (Paytaca: Apps → WizardConnect → Paste URL), or ", h("a", { href: relay.uri }, "open it directly"), "."),
       h("p", { class: "muted" }, "Waiting for your wallet…"));
     const d = dapp;
     d.on("walletready", () => { if (!readyOnce) { readyOnce = true; onReady(d); } });
