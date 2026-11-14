@@ -6,7 +6,7 @@ import { DappConnectionManager } from "@wizardconnect/dapp";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
   resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
-  buildPayment, buildCommitment, buildClaim, DEFAULT_RELAYS, DUST,
+  buildPayment, buildCommitment, buildClaim, findByAddress, decodeP2pkhAddress, npubToHex, DEFAULT_RELAYS, DUST,
 } from "../lib/index.mjs";
 
 const PROJECT = "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95";
@@ -76,7 +76,7 @@ function go(name) {
 
 function showHome(error, value = "") {
   const input = h("input", {
-    type: "text", value, placeholder: "npub1…, name@domain or a profile link", autocomplete: "off", autocapitalize: "off",
+    type: "text", value, placeholder: "npub1…, name@domain, a profile link or a BCH address", autocomplete: "off", autocapitalize: "off",
     spellcheck: "false", "aria-label": "A Nostr name",
   });
   fill(view, h("section", { class: "hero" },
@@ -92,22 +92,47 @@ function showHome(error, value = "") {
 
 // ── Paying a name ────────────────────────────────────────────────────────────
 
+/** A pasted BCH address in its plain P2PKH form (token-aware « z » addresses too), or null. */
+function asAddress(raw) {
+  const text = raw.replace(/\?.*$/, "").toLowerCase();
+  for (const t of text.includes(":") ? [text] : [text, `bitcoincash:${text}`]) {
+    try {
+      const { prefix, payload } = decodeP2pkhAddress(t);
+      const enc = L.encodeCashAddress({ prefix, type: "p2pkh", payload });
+      return typeof enc === "string" ? enc : enc.address;
+    } catch { /* not an address */ }
+  }
+  return null;
+}
+
 async function showName(raw, me) {
   fill(view, h("section", { class: "card loading" }, spinner(),
     h("div", {}, h("b", {}, "Checking this name…"),
       h("p", { class: "muted", style: "margin:0" }, "Its claim on Nostr relays, its commitment on the Bitcoin Cash chain."))));
-  let who;
-  try { who = await resolveName(raw); } catch (e) { if (me === nav) showHome(e.message, raw); return; }
+  const address = asAddress(raw);
+  let who = null;
+  if (!address) {
+    try { who = await resolveName(raw); } catch (e) { if (me === nav) showHome(e.message, raw); return; }
+  }
   const nostr = relayReader();
   let result, profile, servers = [];
   try {
     const c = await chain();
     servers = c.servers;
-    [result, profile] = await Promise.all([
-      verifyBinding(who.npub, { nostr: { fetchClaim: (pk) => nostr.fetchClaim(pk, who.relays) }, chain: c }),
-      nostr.fetchProfile(who.pubkey, who.relays).catch(() => null),
-    ]);
+    if (address) {
+      // Discovery by address: claims tagging it on relays, commitments in its history; each one verified in full.
+      result = await findByAddress(address, { nostr, chain: c });
+      if (!result) { if (me === nav) showHome(`No Nostr name is bound to ${address} yet.`, raw); return; }
+      who = { pubkey: npubToHex(result.npub), npub: result.npub, relays: [], via: `the address, found through the ${result.via.join(" and the ")}` };
+      profile = await nostr.fetchProfile(who.pubkey).catch(() => null);
+    } else {
+      [result, profile] = await Promise.all([
+        verifyBinding(who.npub, { nostr: { fetchClaim: (pk) => nostr.fetchClaim(pk, who.relays) }, chain: c }),
+        nostr.fetchProfile(who.pubkey, who.relays).catch(() => null),
+      ]);
+    }
   } catch (e) {
+    if (!who) { if (me === nav) showHome(`Couldn't look up this address: ${e.message}`, raw); return; }
     result = { status: "error", reason: e.message, warnings: [] };
   } finally {
     nostr.close();
