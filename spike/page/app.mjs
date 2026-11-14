@@ -1,13 +1,14 @@
 // Browser side of the spike: connect any WizardConnect wallet, ask for one signature.
 // Fake input, broadcast: false, so nothing ever reaches the chain.
+// Sends the protocol's relay format (hex transaction + hex source outputs), as the product does since 11-14.
 import { initiateDappRelay } from "@wizardconnect/core";
+import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwalletv1-serialize";
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import * as L from "@bitauth/libauth";
 import { renderSVG } from "uqr";
 
 const $ = (id) => document.getElementById(id);
 const log = (m) => { $("log").textContent += `${new Date().toISOString().slice(11, 19)} ${m}\n`; };
-const wire = (o) => JSON.parse(L.stringify(o)); // the relay JSON.stringify()s: bigint/Uint8Array in libauth's extended form
 const utf8 = (s) => new TextEncoder().encode(s);
 const cat = (...a) => L.flattenBinArray(a.map((x) => (x instanceof Uint8Array ? x : Uint8Array.from(x))));
 const spike = (window.spike = { status: "idle", broadcast: new URLSearchParams(location.search).has("broadcast") });
@@ -53,7 +54,7 @@ $("sign").onclick = async () => {
   log("sign request sent: check your wallet");
   try {
     const res = await dapp.signTransaction({
-      transaction: wire({ transaction: tx, sourceOutputs: [source], broadcast: spike.broadcast, userPrompt: spike.broadcast ? "BLAZE spike: broadcast test (fake coin, must fail)" : "BLAZE spike: test signature, never broadcast" }),
+      transaction: { transaction: transactionToHex(tx.inputs, tx.outputs, tx.version, tx.locktime), sourceOutputs: [sourceOutputToRelay(source)], broadcast: spike.broadcast, userPrompt: spike.broadcast ? "BLAZE spike: broadcast test (fake coin, must fail)" : "BLAZE spike: test signature, never broadcast" },
       inputPaths: [[0, "receive", 0]],
     });
     const signed = L.decodeTransaction(L.hexToBin(res.signedTransaction));
