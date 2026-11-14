@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19, nip98 } from "nostr-tools";
-import { loginGate, loginTemplate, authorizationHeader, LOGIN_KIND } from "../lib/index.mjs";
+import * as L from "@bitauth/libauth";
+import { loginGate, loginTemplate, authorizationHeader, LOGIN_KIND, signP2pkh, p2pkhAddress, findAddressPath, walletProofTransaction, TAG } from "../lib/index.mjs";
 
 const URL_ = "https://app.example/login";
 let now = 1_800_000_000;
@@ -79,4 +80,87 @@ test("login: an answer made by nostr-tools' own NIP-98 helper is accepted (inter
   const token = await nip98.getToken(c.url, "post", (e) => finalizeEvent(e, sk), true);
   assert.equal(g.check(token, post(c)).pubkey, getPublicKey(sk));
   assert.equal(LOGIN_KIND, 27235);
+});
+
+// ── The wallet's live answer (spec §9.5) ──
+const bchKey = L.sha256.hash(L.utf8ToBin("wallet proof test key"));
+const bchPub = L.secp256k1.derivePublicKeyCompressed(bchKey);
+const ADDRESS = p2pkhAddress(bchPub);
+const NPUB = nip19.npubEncode(getPublicKey(sk));
+const hexTx = (tx) => L.binToHex(L.encodeTransaction(tx));
+const walletSigns = (c, key = bchKey, sighash = 0x41) => hexTx(signP2pkh(c.transaction, c.sourceOutputs, key, sighash));
+
+test("wallet proof: the wallet behind the bound address signs the one-time code, once", () => {
+  const g = gate();
+  const c = g.walletChallenge({ npub: NPUB, address: ADDRESS });
+  assert.match(c.text, /^Sign in to app\.example as npub1[02-9ac-hj-np-z]{58}, one-time code [0-9a-f]{32}$/);
+  assert.equal(c.expiresAt, now + 300);
+  const signed = walletSigns(c);
+  assert.deepEqual(g.walletCheck(signed), { npub: NPUB, address: ADDRESS, publicKey: L.binToHex(bchPub) });
+  assert.match(g.walletCheck(signed).error, /already used/); // replay
+});
+
+test("wallet proof: nothing moves; it spends output 0 of a parent made from the text, which spends nothing", () => {
+  const c = gate().walletChallenge({ npub: NPUB, address: ADDRESS });
+  const [input] = c.transaction.inputs;
+  assert.equal(c.transaction.inputs.length, 1);
+  assert.equal(input.outpointIndex, 0);
+  assert.deepEqual(c.transaction.outputs.map((o) => o.valueSatoshis), [0n]);
+  assert.equal(c.sourceOutputs[0].valueSatoshis, 0n);
+  const [data] = c.transaction.outputs;
+  const pushes = L.decodeAuthenticationInstructions(data.lockingBytecode.slice(1));
+  assert.equal(data.lockingBytecode[0], 0x6a);
+  assert.deepEqual([pushes[0].data, L.binToUtf8(pushes[1].data)], [TAG, c.text]);
+  assert.ok(data.lockingBytecode.length <= 223);
+  // Same text → same parent; another text → another parent. The parent's own input is the null outpoint.
+  const again = walletProofTransaction({ address: ADDRESS, text: c.text });
+  assert.deepEqual(again.transaction.inputs[0].outpointTransactionHash, input.outpointTransactionHash);
+  assert.notDeepEqual(walletProofTransaction({ address: ADDRESS, text: c.text + "x" }).transaction.inputs[0].outpointTransactionHash, input.outpointTransactionHash);
+  assert.throws(() => walletProofTransaction({ address: ADDRESS, text: "x".repeat(216) }), /too long/);
+});
+
+test("wallet proof: another key, a broken signature or a partial sighash is refused, and the challenge stays open", () => {
+  const g = gate();
+  const c = g.walletChallenge({ npub: NPUB, address: ADDRESS });
+  const other = L.sha256.hash(L.utf8ToBin("someone else"));
+  assert.match(g.walletCheck(walletSigns(c, other)).error, /no input is signed by this address/);
+  // The right public key with another key's signature: the VM decides.
+  const forged = signP2pkh(c.transaction, [{ ...c.sourceOutputs[0], lockingBytecode: L.encodeLockingBytecodeP2pkh(L.hash160(L.secp256k1.derivePublicKeyCompressed(other))) }], other);
+  const [sig] = L.decodeAuthenticationInstructions(forged.inputs[0].unlockingBytecode);
+  const swapped = { ...forged, inputs: [{ ...forged.inputs[0], unlockingBytecode: L.flattenBinArray([L.encodeDataPush(sig.data), L.encodeDataPush(bchPub)]) }] };
+  assert.match(g.walletCheck(hexTx(swapped)).error, /doesn't verify/);
+  assert.match(g.walletCheck(walletSigns(c, bchKey, 0x42)).error, /doesn't cover every output/); // NONE
+  assert.ok(g.walletCheck(walletSigns(c)).publicKey);
+});
+
+test("wallet proof: a wallet that changes the transaction, garbage, or a proof made for another app is refused", () => {
+  const g = gate();
+  const c = g.walletChallenge({ npub: NPUB, address: ADDRESS });
+  const edit = (f) => hexTx(signP2pkh(f(c.transaction), c.sourceOutputs, bchKey));
+  assert.match(g.walletCheck(edit((t) => ({ ...t, locktime: 1 }))).error, /changed the transaction/);
+  assert.match(g.walletCheck(edit((t) => ({ ...t, outputs: [...t.outputs, { lockingBytecode: L.encodeLockingBytecodeP2pkh(L.hash160(bchPub)), valueSatoshis: 0n }] }))).error, /changed the transaction/);
+  assert.match(g.walletCheck("zz").error, /isn't a transaction/);
+  assert.match(g.walletCheck(undefined).error, /isn't a transaction/);
+  const elsewhere = loginGate({ url: "https://other.example/login", clock: () => now }).walletChallenge({ npub: NPUB, address: ADDRESS });
+  assert.match(g.walletCheck(walletSigns(elsewhere)).error, /never issued here/);
+  assert.ok(g.walletCheck(walletSigns(c)).publicKey);
+});
+
+test("wallet proof: an answer after five minutes has expired, and the code is spent", () => {
+  const g = gate();
+  const c = g.walletChallenge({ npub: NPUB, address: ADDRESS });
+  const signed = walletSigns(c);
+  now += 301;
+  try {
+    assert.match(g.walletCheck(signed).error, /expired/);
+    assert.match(g.walletCheck(signed).error, /already used/);
+  } finally { now -= 301; }
+});
+
+test("wallet proof: the page finds the bound address in the wallet's public keys, or says it isn't there", () => {
+  const keyAt = (child, i) => L.secp256k1.derivePublicKeyCompressed(L.sha256.hash(L.utf8ToBin(`${child}/${i}`)));
+  assert.deepEqual(findAddressPath(keyAt, p2pkhAddress(keyAt(1, 3n))), ["change", 3]);
+  assert.deepEqual(findAddressPath(keyAt, p2pkhAddress(keyAt(0, 41n))), ["receive", 41]);
+  assert.equal(findAddressPath(keyAt, ADDRESS, { max: 50 }), null);
+  assert.equal(findAddressPath((child, i) => (child === 0 ? keyAt(0, i) : undefined), p2pkhAddress(keyAt(1, 3n)), { max: 50 }), null);
 });
