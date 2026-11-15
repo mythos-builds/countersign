@@ -6,7 +6,9 @@ import { renderSVG } from "uqr";
 import { initiateDappRelay } from "@wizardconnect/core";
 import { DappConnectionManager } from "@wizardconnect/dapp";
 import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwalletv1-serialize";
-import { loginGate, loginTemplate, authorizationHeader, verifyBinding, relayReader, fulcrumChain, findAddressPath } from "../../lib/index.mjs";
+import {
+  loginGate, loginTemplate, authorizationHeader, verifyBinding, relayReader, fulcrumChain, findAddressPath, connectLink, viaLink, viaBunker,
+} from "../../lib/index.mjs";
 
 const SITE = new URL("../", location.href).href; // the Countersign site: bind and pay links
 const BIND_KEY = "countersign-demo-identity"; // an identity made on the site's Bind page (same origin)
@@ -73,8 +75,41 @@ function signers() {
     const sk = fromHex(hex);
     list.push({ label: "Sign in with the identity I made on Countersign", sign: async (t) => finalizeEvent(t, sk) });
   }
+  list.push(remote
+    ? { label: "Sign in with my signer app", sign: (t) => remote.sign(t) }
+    : { label: "Sign in with a signer app (Amber, nsec.app…)", connect: true });
   list.push({ label: "Try it with a new throwaway key", sign: async (t) => finalizeEvent(t, generateSecretKey()) });
   return list;
+}
+
+let remote = null; // a signer app (NIP-46) connected in this tab: the key stays in the app, each event is re-checked (lib/remote.mjs)
+
+/** Connect a signer app by QR / nostrconnect link, or a pasted bunker:// link, then sign in with it. */
+function connectSigner() {
+  started = true; // keep the late-extension refresh from replacing this screen
+  const stop = new AbortController();
+  const link = connectLink({ name: "Members' corner", url: location.protocol === "https:" ? `${location.origin}${location.pathname}` : undefined });
+  const status = h("p", { class: "quiet" }, "Waiting for your signer app…");
+  const qr = h("div", { class: "qr" });
+  qr.innerHTML = renderSVG(link.uri); // SVG drawn from the link we just made
+  const input = h("input", { type: "text", placeholder: "or paste a bunker:// link", "aria-label": "bunker link", autocomplete: "off", spellcheck: "false" });
+  const onauth = (url) => /^https:\/\//.test(url) && status.replaceChildren("Your signer asks you to approve this app first: ",
+    h("a", { href: url, target: "_blank", rel: "noopener" }, "open its page"), ", then come back here.");
+  const go = (id) => { stop.abort(); remote = id; signIn({ label: "Sign in with my signer app", sign: (t) => id.sign(t) }); };
+  const failed = (e) => status.replaceChildren(h("span", { class: "bad" }, `Not connected: ${e.message || e}`));
+  async function paste() {
+    status.replaceChildren("Connecting to the bunker…");
+    try { go(await viaBunker(input.value, { onauth })); } catch (e) { failed(e); }
+  }
+  view.replaceChildren(h("section", { class: "card connect" },
+    h("h2", {}, "Connect your signer app"),
+    h("p", { class: "quiet" }, "Scan this with Amber, nsec.app or any Nostr Connect signer, or open the link on this phone. Your key stays in the app: this page only receives what it signs."),
+    qr,
+    h("a", { class: "button", href: link.uri }, "Open in a signer app"),
+    h("div", { class: "paste" }, input, h("button", { type: "button", onclick: paste }, "Connect")),
+    status,
+    h("button", { type: "button", class: "link", onclick: () => { stop.abort(); showStart(); } }, "Back")));
+  viaLink(link, { signal: stop.signal, onauth }).then(go, (e) => { if (!stop.signal.aborted) failed(e); });
 }
 
 let started = false;
@@ -87,7 +122,7 @@ function showStart() {
       h("h1", {}, "Members sign in with their own key."),
       h("p", { class: "lede" }, "No password and no account with us. Your Nostr key answers a one-time challenge, then the app learns which Bitcoin Cash address you bound to that key, from Nostr relays and the BCH chain."),
     ),
-    h("div", { class: "actions" }, signers().map((s, i) => h("button", { class: i === 0 ? "primary" : "", onclick: () => signIn(s) }, s.label))),
+    h("div", { class: "actions" }, signers().map((s, i) => h("button", { class: i === 0 ? "primary" : "", onclick: () => (s.connect ? connectSigner() : signIn(s)) }, s.label))),
     h("p", { class: "quiet" }, "No Nostr identity yet? ", h("a", { href: `${SITE}#/bind` }, "Make one and bind a wallet on Countersign"), ", then come back here."),
   );
 }
