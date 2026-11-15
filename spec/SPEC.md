@@ -42,6 +42,8 @@ Result: `{status, npub, address, txid, confirmations, boundSince, warnings, reas
 ## 6. Statuses
 `verified` · `pending` (payable, shown as new) · `superseded` (with the newer npub and txid) · `invalid` (with a reason). A newest claim that names no BCH address means the person unbound: `invalid`, « the newest claim names no BCH address ».
 
+**Rotation** needs no extra rule, only the two « newest wins » above, and the bind page offers it once a name is chosen: a name already bound is shown its address and commitment, and may (a) **move to another wallet** (the usual steps: a new commitment, then a claim naming the new address replaces the old claim), or (b) **unbind** (`buildUnbind`: the current identity list without its BCH address and the wall tag, dated after it). A **new Nostr key** binds the same wallet from that key: the newer commitment in the address history makes the old name `superseded` (§5.9).
+
 ## 7. Discovery (no indexer of ours)
 - **By name** (`resolveName`): an npub, an nprofile (its relay hints are used), 64-hex, a `nostr:` link or profile URL holding one, or `name@domain` through NIP-05: `https://domain/.well-known/nostr.json?name=…`, no redirects followed, the document must list that exact name; relay hints are `wss://` only, five at most.
 - **By address** (`findByAddress`), two independent roads:
@@ -82,7 +84,7 @@ Deployment notes: tie each nonce to the browser session that asked for it (a coo
 - Remote signers (NIP-46, `lib/remote.mjs`): the Nostr key stays in the signer app; the page holds a throwaway session key only. It connects by a `nostrconnect://` link (QR) whose secret the signer must send back, or by a pasted `bunker://` link, and asks for `get_public_key` and only the kinds it signs (10011, 1, 27235). Every event a signer returns is re-verified on a fresh copy, must carry the identity's key, and must be exactly the event asked for (kind, `created_at`, tags, content); anything else is refused (tested).
 
 ## 11. Open
-Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bindings · a rotation screen (the « latest commitment wins » rule already covers it) · a public directory from the `t` tag · the courtesy PR for `CSG\0` in the protocol registry.
+Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bindings · a public directory from the `t` tag · the courtesy PR for `CSG\0` in the protocol registry.
 
 ## 12. Changes from v0
 - The tag is final: `CSG\0` (§3.3). New limits: 20 inputs (§3.4), 30 later transactions (§5.9). Data outputs without the tag are ignored (§3.2). The fee rule is written down (§3.5).
@@ -91,3 +93,4 @@ Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bind
 - A newer claim with no BCH address gives `invalid` with its reason, not `superseded` (§6).
 - Discovery by address is specified as two roads that each lead to the full check (§7).
 - Login is implemented: exact rules for the nonce, the window and the order of the checks, plus deployment notes (§9).
+- Rotation is offered on the bind page: move to another wallet or unbind (`buildUnbind`), and a new Nostr key supersedes the old name from the same wallet (§6).

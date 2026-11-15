@@ -22,9 +22,9 @@ The site is static files. Every check runs in your browser; relays and public Bi
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
 | 3 | Discovery without a central database | The search box on the [site](https://mythos-builds.github.io/countersign/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
 | 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. The demo app can then ask your wallet to answer too: it signs a one-time code in a transaction that can never be broadcast. |
-| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 43 tests. |
+| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 62 tests. |
 
-Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (a newer commitment from the same address supersedes the older one), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
+Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (on the bind page, a name already bound can move to another wallet or unbind; a new Nostr key that binds the same wallet supersedes the old name), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
 
 ## How it works
 
@@ -127,7 +127,7 @@ Node 22 or newer (the Fulcrum client uses the built-in WebSocket).
 git clone https://github.com/mythos-builds/countersign
 cd countersign
 npm ci
-npm test              # 43 tests, offline
+npm test              # 62 tests, offline
 npm run dev           # the site and the demo app on a local server
 npm run build         # static build into dist/ (any static host works)
 ```

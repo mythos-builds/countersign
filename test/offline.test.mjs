@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
-  buildCommitment, signP2pkh, dataOutputBytecode, readCommitment, buildClaim, verifyBinding, findByAddress, TAG, NIP39_WORDING,
+  buildCommitment, signP2pkh, dataOutputBytecode, readCommitment, buildClaim, buildUnbind, verifyBinding, findByAddress, TAG, NIP39_WORDING,
   listWall, onWall,
 } from "../lib/index.mjs";
 
@@ -211,6 +211,25 @@ test("the claim merges: other identities kept, one BCH address, a newer timestam
   assert.equal(next.kind, 10011);
   assert.equal(next.created_at, now + 101);
   assert.deepEqual(next.tags, [["i", "github:someone", "gistid"], ["i", "bitcoincash:qnew", "b".repeat(64)], ["t", "countersign"]]);
+});
+
+test("unbinding keeps the other identities and drops the BCH address and the wall tag; the name then has no address", async () => {
+  const now = T0;
+  const current = { created_at: now + 100, content: "", tags: [["i", "github:someone", "gistid"], ["i", "bitcoincash:qold", "a".repeat(64)], ["t", "countersign"]] };
+  const next = buildUnbind(current, { now });
+  assert.equal(next.kind, 10011);
+  assert.equal(next.created_at, now + 101);
+  assert.deepEqual(next.tags, [["i", "github:someone", "gistid"]]);
+  assert.deepEqual(current.tags.length, 3, "the current claim is left as it was");
+
+  const chain = memoryChain();
+  const b = bind(chain);
+  assert.equal((await check(chain, b)).status, "verified");
+  const after = finalizeEvent(buildUnbind(b.claim, { now: b.claim.created_at }), b.id.sk);
+  const r = await check(chain, b, b.id.npub, [after]);
+  assert.equal(r.status, "invalid");
+  assert.match(r.reason, /names no BCH address/);
+  assert.equal(onWall(after), false);
 });
 
 test("the data output fits the 223-byte limit and reads back", () => {

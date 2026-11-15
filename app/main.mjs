@@ -8,7 +8,7 @@ import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwal
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
   resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
-  buildPayment, buildCommitment, buildClaim, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
+  buildPayment, buildCommitment, buildClaim, buildUnbind, sameAddress, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
   receiptTemplate, listReceipts, explorerUrl, connectLink, viaLink, viaBunker,
 } from "../lib/index.mjs";
 
@@ -599,7 +599,7 @@ function showBind() {
       h("p", { class: "lede" }, "Two signatures, one from each key, and neither key leaves where it lives. After that, anyone can pay your Nostr name.")),
     h("section", { class: "card" }, h("ol", { class: "steps" }, s1.el, s2.el, s3.el, s4.el)));
 
-  let id, dapp, built, address, txid;
+  let id, dapp, built, address, txid, before; // before = the name's binding when it was chosen, if it had one
 
   // 1 · the Nostr identity: a browser extension (NIP-07), or a new one made here.
   const nameInput = h("input", { type: "text", placeholder: "Your name (optional)", maxlength: "60", "aria-label": "Name people will see" });
@@ -645,8 +645,47 @@ function showBind() {
         h("p", { style: "margin:0.5rem 0 0" }, copyButton(nip19.nsecEncode(id.sk), "Copy the secret key (nsec)"), " · ",
           h("button", { type: "button", class: "link", onclick: () => { forgetDemoKey(); route(); } }, "Forget it and start over"))) : null);
     s2.state("active");
-    s2.set(h("p", {}, "The wallet whose address people will pay. It shares public keys only."),
-      h("button", { type: "button", class: "primary", onclick: () => connectWallet(s2.body, walletReady) }, "Connect a wallet"));
+    s2.set(spinner(), h("p", {}, "Looking for a binding this name already has…"));
+    const reader = relayReader();
+    chain().then((c) => verifyBinding(id.npub, { nostr: reader, chain: c })).catch(() => null).finally(() => reader.close())
+      .then((r) => { if (id === identity) offerWallet(r); });
+  }
+
+  // 2 · a name already bound can move to another wallet (the newest claim wins, spec §6) or unbind.
+  function offerWallet(r) {
+    before = r?.status === "verified" || r?.status === "pending" ? r : null;
+    const connect = h("button", { type: "button", class: "primary", onclick: () => connectWallet(s2.body, walletReady) }, before ? "Connect the new wallet" : "Connect a wallet");
+    if (!before) return s2.set(h("p", {}, "The wallet whose address people will pay. It shares public keys only."), connect);
+    const since = new Date(before.boundSince * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    s2.set(h("div", { class: "status ok" }, h("b", {}, "This name is already bound"), h("code", {}, before.address),
+        h("p", { style: "margin:0.5rem 0 0" }, before.boundSince ? `Since ${since} · ` : "", txLink(before.txid))),
+      h("p", {}, "Bind another wallet to move it, for a new wallet or a lost one: payers then see the new address, and the old binding stops counting."),
+      connect,
+      h("p", {}, "Or ", h("button", { type: "button", class: "link", onclick: unbind }, "unbind it"), ": the name then has no Bitcoin Cash address and leaves the wall."),
+      h("p", { class: "muted" }, "Moving to a new Nostr key? Bind this same wallet from the new key: this name then shows « Replaced »."));
+  }
+
+  async function unbind() {
+    s2.set(spinner(), h("p", {}, id.sk ? "Signing and publishing…" : id.via === "remote" ? "Approve it in your signer app…" : "Approve it in your Nostr extension…"));
+    const reader = relayReader();
+    try {
+      const [{ claim: current }, outbox] = await Promise.all([reader.fetchClaim(id.pubkey), reader.writeRelays(id.pubkey).catch(() => [])]);
+      const event = verifiedCopy(await id.sign(buildUnbind(current)));
+      if (!event || event.pubkey !== id.pubkey) throw new Error("the signed claim doesn't verify for this key");
+      const targets = [...new Set([...outbox.slice(0, 5), ...DEFAULT_RELAYS])];
+      const results = await reader.publish(event, targets);
+      const accepted = targets.filter((_, i) => results[i].status === "fulfilled");
+      if (!accepted.length) throw new Error("no relay accepted it");
+      s2.state("done");
+      s2.set(h("div", { class: "status ok" }, h("b", {}, "Unbound"),
+        `Published on ${accepted.length} of ${targets.length} relays. Your name has no Bitcoin Cash address now; the old commitment stays on chain but no longer counts.`),
+        h("p", {}, h("a", { href: `#/${id.npub}` }, "See your page"), " · ", h("button", { type: "button", class: "link", onclick: () => offerWallet(null) }, "Bind a wallet after all")));
+      [s3, s4].forEach((s) => s.set(h("p", { class: "muted" }, "Not needed.")));
+    } catch (e) {
+      s2.set(h("p", { class: "error" }, `Not unbound: ${e.message || e}`), h("button", { type: "button", onclick: () => offerWallet(before) }, "Back"));
+    } finally {
+      reader.close();
+    }
   }
 
   // 2 · the wallet: the bound address = the address of the coins the commitment spends.
@@ -675,7 +714,10 @@ function showBind() {
         h("button", { type: "button", onclick: () => walletReady(dapp) }, "Look again"));
     }
     s2.state("done");
-    s2.set(h("p", {}, `${dapp.walletName ?? "Wallet"} · this address will be bound:`), h("code", {}, address));
+    s2.set(h("p", {}, `${dapp.walletName ?? "Wallet"} · this address will be bound:`), h("code", {}, address),
+      before && sameAddress(before.address, address)
+        ? h("p", { class: "muted" }, "It is the address this name is already bound to: a new commitment only renews its date, and it shows « new » again for a day.")
+        : null);
     s3.state("active");
     s3.set(h("p", {}, "A small transaction from that address, with one note on chain: « Verifying that I control the following Nostr public key: ", h("code", {}, shortKey(id.npub)), " ». No payment to anyone: ",
       `the network fee is ${built.fee} satoshis and the rest comes back to the same address.`),
