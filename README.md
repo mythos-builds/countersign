@@ -18,7 +18,7 @@ The site is static files. Every check runs in your browser; relays and public Bi
 
 | # | Requirement | Where to see it |
 |---|---|---|
-| 1 | Create or connect both identities, keys stay with the user | [#/bind](https://mythos-builds.github.io/countersign/#/bind), steps 1 and 2: your Nostr extension (NIP-07) or a new key made in the browser, whose secret you keep; then your own BCH wallet over WizardConnect, which shares public keys only. No account, no custodian. |
+| 1 | Create or connect both identities, keys stay with the user | [#/bind](https://mythos-builds.github.io/countersign/#/bind), steps 1 and 2: your Nostr extension (NIP-07), a signer app over Nostr Connect (NIP-46: Amber, nsec.app, any bunker; the key never leaves it), or a new key made in the browser, whose secret you keep; then your own BCH wallet over WizardConnect, which shares public keys only. No account, no custodian. |
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
 | 3 | Discovery without a central database | The search box on the [site](https://mythos-builds.github.io/countersign/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
 | 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. The demo app can then ask your wallet to answer too: it signs a one-time code in a transaction that can never be broadcast. |
@@ -115,7 +115,7 @@ Coins carrying CashTokens are never spent, by the payment or by the commitment: 
 
 ### Receipts on Nostr
 
-After « Paid ✓ », the payer can post a receipt: a public note from their Nostr name (a browser extension, or the name made on the bind page) that tags the payee, so the payee is notified in any Nostr client, and points at the transaction with NIP-73's id, `bitcoincash:tx:<txid>`. The pay page lists a name's **Recent payments** from these notes, and checks each one on chain first: the transaction must pay the name's bound address, and the amount shown is the chain's, not the note's.
+After « Paid ✓ », the payer can post a receipt: a public note from their Nostr name (a browser extension, a signer app, or the name made on the bind page) that tags the payee, so the payee is notified in any Nostr client, and points at the transaction with NIP-73's id, `bitcoincash:tx:<txid>`. The pay page lists a name's **Recent payments** from these notes, and checks each one on chain first: the transaction must pay the name's bound address, and the amount shown is the chain's, not the note's.
 
 Anyone can post a note about anyone's payment, so the page says who paid only as far as the chain proves it: **« from their bound address »** when the payer's own bound address signed the payment, otherwise **« says it was them »**. One row per payment; a proven payer beats an earlier claim. Tested on mainnet on November 14: the reference wallet paid Countersign's name 0.00001 BCH through the page (tx `c5814de6…3d05`), the demo name posted the receipt, and the page and a cold check from Node both list it as « from their bound address ».
 

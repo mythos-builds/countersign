@@ -79,6 +79,7 @@ Deployment notes: tie each nonce to the browser session that asked for it (a coo
 - A commitment cannot make a verifier do unbounded work: at most 20 inputs (§3.4), at most 30 later transactions read (§5.9), 50 history entries on the chain road (§7).
 - Profile data shown from kind 0 is reduced to plain strings; pictures are `https://` only.
 - A receipt can point at anyone's payment: only a `bound` proof names the payer, and amounts come from the chain (§8.3).
+- Remote signers (NIP-46, `lib/remote.mjs`): the Nostr key stays in the signer app; the page holds a throwaway session key only. It connects by a `nostrconnect://` link (QR) whose secret the signer must send back, or by a pasted `bunker://` link, and asks for `get_public_key` and only the kinds it signs (10011, 1, 27235). Every event a signer returns is re-verified on a fresh copy, must carry the identity's key, and must be exactly the event asked for (kind, `created_at`, tags, content); anything else is refused (tested).
 
 ## 11. Open
 Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bindings · a rotation screen (the « latest commitment wins » rule already covers it) · a public directory from the `t` tag · the courtesy PR for `CSG\0` in the protocol registry.

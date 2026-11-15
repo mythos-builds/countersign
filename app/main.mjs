@@ -9,7 +9,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-too
 import {
   resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
   buildPayment, buildCommitment, buildClaim, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
-  receiptTemplate, listReceipts, explorerUrl,
+  receiptTemplate, listReceipts, explorerUrl, connectLink, viaLink, viaBunker,
 } from "../lib/index.mjs";
 
 const PROJECT = "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95";
@@ -306,7 +306,7 @@ function qrRail(r, amount) {
 
 // ── Receipts ─────────────────────────────────────────────────────────────────
 
-/** The Nostr names this browser can sign with: an extension (NIP-07), and the identity made on the bind page. */
+/** The Nostr names this browser can sign with: an extension (NIP-07), a signer app (NIP-46), the identity made on the bind page. */
 function signers() {
   const ways = [];
   if (window.nostr) ways.push({
@@ -317,9 +317,46 @@ function signers() {
       return { pubkey, sign: (t) => window.nostr.signEvent(t) };
     },
   });
+  ways.push(remote
+    ? { label: `Post it as ${shortKey(remote.npub)} (your signer app)`, get: async () => remote }
+    : { label: "Post it with a signer app", get: (el) => remoteSigner(el) });
   const sk = loadDemoKey();
   if (sk) ways.push({ label: `Post it as ${shortKey(nip19.npubEncode(getPublicKey(sk)))} (made here)`, get: async () => localIdentity(sk) });
   return ways;
+}
+
+// ── Remote signers (NIP-46) ──────────────────────────────────────────────────
+
+let remote = null; // the signer app connected in this tab, reused until the tab closes
+
+/** Connect a signer app (Amber, nsec.app, a bunker) by its QR or link, or by a pasted bunker:// link, inside `el`.
+ *  Resolves with an identity whose signatures are re-verified (lib/remote.mjs); rejects with « cancelled » on Cancel. */
+function remoteSigner(el) {
+  if (remote) return Promise.resolve(remote);
+  return new Promise((resolve, reject) => {
+    const stop = new AbortController();
+    const link = connectLink({ url: location.protocol === "https:" ? `${location.origin}${location.pathname}` : undefined });
+    const status = h("p", { class: "muted" }, "Waiting for your signer app…");
+    const onauth = (url) => /^https:\/\//.test(url) && fill(status, "Your signer asks you to approve this page first: ",
+      h("a", { href: url, target: "_blank", rel: "noopener" }, "open its page"), ", then come back here.");
+    const qr = h("div", { class: "qr" });
+    qr.innerHTML = renderSVG(link.uri); // SVG drawn from the link we just made
+    const input = h("input", { type: "text", placeholder: "or paste a bunker:// link", "aria-label": "bunker link", autocomplete: "off", spellcheck: "false" });
+    const done = (id) => { stop.abort(); remote = id; resolve(id); };
+    const failed = (e) => fill(status, h("span", { class: "error" }, `Not connected: ${e.message || e}`));
+    fill(el,
+      h("p", {}, "Scan this with your signer app (Amber, nsec.app…), or open the link on this phone. Your key stays in the app: this page only receives what it signs, and checks every signature."),
+      h("div", { class: "row center" }, qr),
+      h("div", { class: "row center" }, h("a", { class: "button", href: link.uri }, "Open in a signer app"), copyButton(link.uri, "Copy the link")),
+      h("div", { class: "row" }, input, h("button", { type: "button", onclick: paste }, "Connect")),
+      status,
+      h("button", { type: "button", class: "link", onclick: () => { stop.abort(); reject(new Error("cancelled")); } }, "Cancel"));
+    viaLink(link, { signal: stop.signal, onauth }).then(done, (e) => { if (!stop.signal.aborted) failed(e); });
+    async function paste() {
+      fill(status, "Connecting to the bunker…");
+      try { done(await viaBunker(input.value, { onauth })); } catch (e) { failed(e); }
+    }
+  });
 }
 
 /** After a payment: an optional public note from the payer's Nostr name that points at the transaction (spec §8.3). */
@@ -334,7 +371,8 @@ function receiptOffer({ txid, sats }, payee, name, onPosted) {
     fill(el, spinner(), h("p", {}, "Signing and publishing the note…"));
     const reader = relayReader();
     try {
-      const id = await way.get();
+      const id = await way.get(el);
+      if (id.via === "remote") fill(el, spinner(), h("p", {}, "Approve the note in your signer app…"));
       if (id.pubkey === payee.pubkey) throw new Error(`that is ${name}'s own Nostr name, and a payee's own receipts aren't listed`);
       const link = location.protocol === "https:" ? `${location.origin}${location.pathname}#/${payee.npub}` : undefined; // never a local address in a public note
       const event = verifiedCopy(await id.sign(receiptTemplate({ payee: payee.npub, txid, sats, link })));
@@ -350,6 +388,7 @@ function receiptOffer({ txid, sats }, payee, name, onPosted) {
         h("a", { href: `https://njump.me/${nevent}`, target: "_blank", rel: "noopener" }, "see the note")));
       onPosted?.();
     } catch (e) {
+      if (e.message === "cancelled") return start();
       fill(el, h("p", { class: "error" }, `Not posted: ${e.message || e}`), h("button", { type: "button", onclick: start }, "Back"));
     } finally {
       reader.close();
@@ -568,9 +607,10 @@ function showBind() {
   s1.set(
     h("p", {}, "The name people will pay."),
     window.nostr ? h("button", { type: "button", class: "primary", onclick: useExtension }, "Use my Nostr extension") : null,
+    h("button", { type: "button", onclick: useRemote }, remote ? `Use my signer app (${shortKey(remote.npub)})` : "Use a signer app (Amber, nsec.app…)"),
     stored ? h("button", { type: "button", onclick: () => chosen(localIdentity(stored)) }, `Use the identity made here before (${shortKey(nip19.npubEncode(getPublicKey(stored)))})`) : null,
     h("div", { class: "row" }, nameInput, h("button", { type: "button", onclick: createIdentity }, "Create a new one here")),
-    window.nostr ? null : h("p", { class: "muted" }, "No Nostr extension in this browser (nos2x, Alby…). A new identity works too: you'll get its secret key to keep."));
+    window.nostr ? null : h("p", { class: "muted" }, "No Nostr extension in this browser (nos2x, Alby…). A signer app works, and so does a new identity: you'll get its secret key to keep."));
 
   async function useExtension() {
     try {
@@ -579,6 +619,16 @@ function showBind() {
       chosen({ pubkey, npub: nip19.npubEncode(pubkey), sign: (t) => window.nostr.signEvent(t) });
     } catch (e) {
       s1.body.append(h("p", { class: "error" }, `The extension didn't give a key: ${e.message ?? e}`));
+    }
+  }
+  async function useRemote() {
+    const panel = h("div", { class: "offer" });
+    s1.body.append(panel);
+    try {
+      chosen(await remoteSigner(panel));
+    } catch (e) {
+      panel.remove();
+      if (e.message !== "cancelled") s1.body.append(h("p", { class: "error" }, `The signer app didn't connect: ${e.message ?? e}`));
     }
   }
   function createIdentity() {
@@ -650,7 +700,7 @@ function showBind() {
 
   // 4 · the Nostr half: the claim, merged into the name's own identity list, sent to its relays and three defaults.
   async function publish() {
-    s4.set(spinner(), h("p", {}, id.sk ? "Signing and publishing the claim…" : "Approve the claim in your Nostr extension…"));
+    s4.set(spinner(), h("p", {}, id.sk ? "Signing and publishing the claim…" : id.via === "remote" ? "Approve the claim in your signer app…" : "Approve the claim in your Nostr extension…"));
     const reader = relayReader();
     try {
       const [{ claim: current }, outbox] = await Promise.all([reader.fetchClaim(id.pubkey), reader.writeRelays(id.pubkey).catch(() => [])]);
