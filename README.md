@@ -5,12 +5,12 @@ Pay a Nostr name in Bitcoin Cash, without asking anyone for an address. Counters
 Built for [BCH BLAZE 2026](https://dorahacks.io/hackathon/bchblaze2026) by one human and an AI agent.
 
 **Live**
-- The site: https://mythos-builds.github.io/countersign/
-- Bind your Nostr name to your BCH wallet: https://mythos-builds.github.io/countersign/#/bind
-- Pay a bound name (Countersign's own), and see its recent payments: https://mythos-builds.github.io/countersign/#/npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95
-- A separate demo app that signs people in with their key: https://mythos-builds.github.io/countersign/demo-login/
-- The project as it stood when hacking began: https://mythos-builds.github.io/countersign/start-2026-11-14/
-- The deck (on the BCH BLAZE "Widget Factory" template): https://mythos-builds.github.io/countersign/deck/countersign-deck.pdf
+- The site: https://countersign.cash/
+- Bind your Nostr name to your BCH wallet: https://countersign.cash/#/bind
+- Pay a bound name (Countersign's own), and see its recent payments: https://countersign.cash/#/npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95
+- A separate demo app that signs people in with their key: https://countersign.cash/demo-login/
+- The project as it stood when hacking began: https://countersign.cash/start-2026-11-14/
+- The deck (on the BCH BLAZE "Widget Factory" template): https://countersign.cash/deck/countersign-deck.pdf
 
 The site is static files. Every check runs in your browser; relays and public Bitcoin Cash servers are only read from.
 
@@ -18,10 +18,10 @@ The site is static files. Every check runs in your browser; relays and public Bi
 
 | # | Requirement | Where to see it |
 |---|---|---|
-| 1 | Create or connect both identities, keys stay with the user | [#/bind](https://mythos-builds.github.io/countersign/#/bind), steps 1 and 2: your Nostr extension (NIP-07), a signer app over Nostr Connect (NIP-46: Amber, nsec.app, any bunker; the key never leaves it), or a new key made in the browser, whose secret you keep; then your own BCH wallet over WizardConnect, which shares public keys only. No account, no custodian. |
+| 1 | Create or connect both identities, keys stay with the user | [#/bind](https://countersign.cash/#/bind), steps 1 and 2: your Nostr extension (NIP-07), a signer app over Nostr Connect (NIP-46: Amber, nsec.app, any bunker; the key never leaves it), or a new key made in the browser, whose secret you keep; then your own BCH wallet over WizardConnect, which shares public keys only. No account, no custodian. |
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
-| 3 | Discovery without a central database | The search box on the [site](https://mythos-builds.github.io/countersign/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
-| 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://mythos-builds.github.io/countersign/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. The demo app can then ask your wallet to answer too: it signs a one-time code in a transaction that can never be broadcast. |
+| 3 | Discovery without a central database | The search box on the [site](https://countersign.cash/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
+| 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://countersign.cash/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. The demo app can then ask your wallet to answer too: it signs a one-time code in a transaction that can never be broadcast. |
 | 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 62 tests. |
 
 Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (on the bind page, a name already bound can move to another wallet or unbind; a new Nostr key that binds the same wallet supersedes the old name), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
@@ -73,7 +73,7 @@ Relays and servers can hide data, never forge it: signatures, hashes and the vir
 
 - **By name:** the site takes an npub, an nprofile (its relay hints are used), a `nostr:` link, 64-hex or `name@domain` (NIP-05, no redirects followed).
 - **By address:** two independent roads, the relays (a `#i` filter on kind 10011, which relays index) and the chain alone (the commitments in the address history name their npub). Every candidate goes through the full check; the newest live commitment wins.
-- **The wall** ([#/wall](https://mythos-builds.github.io/countersign/#/wall)): names bound here that chose to be listed (the claim carries `["t", "countersign"]`; the bind page asks, ticked by default, and either way the binding itself is public). Relays only suggest who is there: each name's newest claim must still carry the tag, then its binding goes through the full check, and names appear one by one as they pass (`listWall`).
+- **The wall** ([#/wall](https://countersign.cash/#/wall)): names bound here that chose to be listed (the claim carries `["t", "countersign"]`; the bind page asks, ticked by default, and either way the binding itself is public). Relays only suggest who is there: each name's newest claim must still carry the tag, then its binding goes through the full check, and names appear one by one as they pass (`listWall`).
 
 ## Sign-in to another app (challenge-response)
 
