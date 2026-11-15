@@ -7,7 +7,7 @@ import { DappConnectionManager } from "@wizardconnect/dapp";
 import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwalletv1-serialize";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-tools";
 import {
-  resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
+  resolveName, verifiedNip05, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
   buildPayment, buildCommitment, buildClaim, buildUnbind, sameAddress, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
   receiptTemplate, listReceipts, explorerUrl, connectLink, viaLink, viaBunker,
 } from "../lib/index.mjs";
@@ -164,16 +164,19 @@ async function showName(raw, me) {
     : initial(name);
   const payable = result.status === "verified" || result.status === "pending";
   const recent = payable ? receiptsCard(result, who, me) : null;
+  const nip05 = h("p", { class: "nip05", title: "This domain lists this Nostr key (NIP-05), checked in your browser" });
   fill(view,
     h("section", { class: "card" },
       h("div", { class: "who" }, avatar,
-        h("div", { style: "min-width:0" }, h("h2", {}, name), h("p", { class: "npub" }, shortKey(who.npub), " ", copyButton(who.npub, "Copy npub")))),
+        h("div", { style: "min-width:0" }, h("h2", {}, name), nip05, h("p", { class: "npub" }, shortKey(who.npub), " ", copyButton(who.npub, "Copy npub")))),
       statusBox(result),
       payable ? h("p", { class: "addr" }, h("span", { class: "muted" }, "Pays to "), h("code", {}, result.address), " ", copyButton(result.address)) : null),
     payable ? payCard(result, name, who, recent) : null,
     recent?.el,
     howChecked(who, result, servers));
   recent?.load();
+  // The name's own domain, once it confirms this very key (a typed name@domain first, else the profile's claim).
+  verifiedNip05(who.via?.includes("@") ? who.via : profile?.nip05, who.pubkey).then((v) => { if (v && me === nav) fill(nip05, v, " ✓"); });
 }
 
 function statusBox(r) {

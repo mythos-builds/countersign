@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
-import { parseBch, formatBch, paymentUri, paidTo, buildPayment, buildCommitment, scanWallet, signP2pkh, resolveName, DUST } from "../lib/index.mjs";
+import { parseBch, formatBch, paymentUri, paidTo, buildPayment, buildCommitment, scanWallet, signP2pkh, resolveName, verifiedNip05, DUST } from "../lib/index.mjs";
 
 const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
 
@@ -132,6 +132,19 @@ test("names: the shipped .well-known/nostr.json makes « countersign.cash » Cou
   assert.equal(r.npub, "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95");
   assert.equal(r.via, "_@countersign.cash");
   assert.ok(r.relays.length > 0);
+});
+
+test("names: a profile's NIP-05 is shown only when its domain lists that very key", async () => {
+  const pk = getPublicKey(generateSecretKey()), other = getPublicKey(generateSecretKey());
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ names: { _: pk, bob: other } }) });
+  assert.equal(await verifiedNip05("_@Example.com", pk, { fetchImpl }), "example.com");
+  assert.equal(await verifiedNip05("bob@example.com", other, { fetchImpl }), "bob@example.com");
+  assert.equal(await verifiedNip05("bob@example.com", pk, { fetchImpl }), null);   // the domain lists another key under that name
+  assert.equal(await verifiedNip05("carol@example.com", pk, { fetchImpl }), null); // not listed
+  assert.equal(await verifiedNip05(nip19.npubEncode(pk), pk, { fetchImpl }), null); // a key is not a name
+  assert.equal(await verifiedNip05("not a name", pk, { fetchImpl }), null);
+  assert.equal(await verifiedNip05(undefined, pk, { fetchImpl }), null);
+  assert.equal(await verifiedNip05("_@down.example", pk, { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } }), null);
 });
 
 test("a commitment from a wallet: fee sized for an ECDSA signer, WizardConnect paths and outpoints", () => {

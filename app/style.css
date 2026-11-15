@@ -49,6 +49,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .who { display: flex; gap: 1rem; align-items: center; }
 .avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; background: var(--code);
   display: grid; place-items: center; font: 600 1.6rem var(--serif); color: var(--muted); }
+.nip05 { margin: 0.1rem 0 0; color: var(--accent-ink); font-weight: 600; font-size: 0.95rem; overflow-wrap: anywhere; }
+.nip05:empty { display: none; }
 .npub { margin: 0.2rem 0 0; color: var(--muted); font: 0.85rem var(--mono); }
 .status { margin: 1.2rem 0 0; padding: 0.8rem 1rem; border-radius: 12px; background: var(--code); }
 .status b { display: block; }
