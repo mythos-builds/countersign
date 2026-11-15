@@ -1,4 +1,5 @@
-// The site (spec §7, §8): #/<name> pays a bound name, #/bind binds yours, #/wall lists the names bound here. Every check runs in this browser.
+// The site (spec §7, §8): #/<name> pays a bound name and lists its receipts, #/bind binds yours, #/wall lists the names bound here.
+// Every check runs in this browser.
 import * as L from "@bitauth/libauth";
 import { renderSVG } from "uqr";
 import { initiateDappRelay } from "@wizardconnect/core";
@@ -8,12 +9,12 @@ import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-too
 import {
   resolveName, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
   buildPayment, buildCommitment, buildClaim, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
+  receiptTemplate, listReceipts, explorerUrl,
 } from "../lib/index.mjs";
 
 const PROJECT = "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95";
 const DEFAULT_AMOUNT = "0.0001";
 const DEMO_KEY = "countersign-demo-identity";
-const explorer = (txid) => `https://blockchair.com/bitcoin-cash/transaction/${txid}`;
 const view = document.getElementById("view");
 
 /** Tiny DOM builder: strings become text nodes, never HTML. */
@@ -33,7 +34,7 @@ const shortKey = (s) => `${s.slice(0, 12)}…${s.slice(-6)}`;
 const sentence = (s) => (s ? s[0].toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? "" : ".") : "");
 const spinner = () => h("div", { class: "spinner", role: "status", "aria-label": "Working" });
 const initial = (name) => h("div", { class: "avatar", "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
-const txLink = (txid, label = `transaction ${txid.slice(0, 8)}…`) => h("a", { href: explorer(txid), target: "_blank", rel: "noopener" }, label);
+const txLink = (txid, label = `transaction ${txid.slice(0, 8)}…`) => h("a", { href: explorerUrl(txid), target: "_blank", rel: "noopener" }, label);
 function ago(seconds) {
   const m = Math.max(1, Math.round(seconds / 60));
   return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
@@ -160,14 +161,17 @@ async function showName(raw, me) {
     ? h("img", { class: "avatar", src: profile.picture, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.target.replaceWith(initial(name)) })
     : initial(name);
   const payable = result.status === "verified" || result.status === "pending";
+  const recent = payable ? receiptsCard(result, who, me) : null;
   fill(view,
     h("section", { class: "card" },
       h("div", { class: "who" }, avatar,
         h("div", { style: "min-width:0" }, h("h2", {}, name), h("p", { class: "npub" }, shortKey(who.npub), " ", copyButton(who.npub, "Copy npub")))),
       statusBox(result),
       payable ? h("p", { class: "addr" }, h("span", { class: "muted" }, "Pays to "), h("code", {}, result.address), " ", copyButton(result.address)) : null),
-    payable ? payCard(result, name) : null,
+    payable ? payCard(result, name, who, recent) : null,
+    recent?.el,
     howChecked(who, result, servers));
+  recent?.load();
 }
 
 function statusBox(r) {
@@ -206,7 +210,7 @@ function howChecked(who, r, servers) {
   return h("details", {}, h("summary", {}, "How this name was checked"), h("ul", {}, ...items.filter(Boolean).map((x) => h("li", {}, x))));
 }
 
-function payCard(r, name) {
+function payCard(r, name, who, recent) {
   let sats = parseBch(DEFAULT_AMOUNT);
   const amount = () => (sats && sats >= DUST ? sats : null);
   const hint = h("p", { class: "error", style: "margin:0 0 0.8rem", hidden: true });
@@ -229,7 +233,8 @@ function payCard(r, name) {
     paidBox.hidden = false;
     paidBox.prepend(h("div", {},
       h("div", { class: "big" }, want && got >= want ? "Paid ✓" : `Received ${formatBch(got)} BCH`),
-      h("p", {}, `${formatBch(got)} BCH reached ${name} · `, txLink(txid))));
+      h("p", {}, `${formatBch(got)} BCH reached ${name} · `, txLink(txid)),
+      receiptOffer({ txid, sats: got }, who, name, () => recent?.load())));
   };
 
   const rails = {};
@@ -295,6 +300,109 @@ function qrRail(r, amount) {
       copyButton(r.address, "Copy the address")),
     update,
   };
+}
+
+// ── Receipts ─────────────────────────────────────────────────────────────────
+
+/** The Nostr names this browser can sign with: an extension (NIP-07), and the identity made on the bind page. */
+function signers() {
+  const ways = [];
+  if (window.nostr) ways.push({
+    label: "Post it with my Nostr extension",
+    get: async () => {
+      const pubkey = await window.nostr.getPublicKey();
+      if (!/^[0-9a-f]{64}$/.test(pubkey ?? "")) throw new Error("the extension gave no key");
+      return { pubkey, sign: (t) => window.nostr.signEvent(t) };
+    },
+  });
+  const sk = loadDemoKey();
+  if (sk) ways.push({ label: `Post it as ${shortKey(nip19.npubEncode(getPublicKey(sk)))} (made here)`, get: async () => localIdentity(sk) });
+  return ways;
+}
+
+/** After a payment: an optional public note from the payer's Nostr name that points at the transaction (spec §8.3). */
+function receiptOffer({ txid, sats }, payee, name, onPosted) {
+  const ways = signers();
+  if (!ways.length) return null;
+  const el = h("div", { class: "offer" });
+  const start = () => fill(el,
+    h("p", {}, `Post a receipt? A public note from your Nostr name that points at this payment: ${name} is notified, and it shows under Recent payments.`),
+    h("div", { class: "row center" }, ...ways.map((w) => h("button", { type: "button", onclick: () => post(w) }, w.label))));
+  async function post(way) {
+    fill(el, spinner(), h("p", {}, "Signing and publishing the note…"));
+    const reader = relayReader();
+    try {
+      const id = await way.get();
+      if (id.pubkey === payee.pubkey) throw new Error(`that is ${name}'s own Nostr name, and a payee's own receipts aren't listed`);
+      const link = location.protocol === "https:" ? `${location.origin}${location.pathname}#/${payee.npub}` : undefined; // never a local address in a public note
+      const event = verifiedCopy(await id.sign(receiptTemplate({ payee: payee.npub, txid, sats, link })));
+      if (!event || event.pubkey !== id.pubkey) throw new Error("the signed note doesn't verify for this key");
+      // NIP-65: the payer's outbox, the payee's inbox, and the defaults every reader here asks.
+      const [outbox, inbox] = await Promise.all([reader.writeRelays(id.pubkey).catch(() => []), reader.readRelays(payee.pubkey).catch(() => [])]);
+      const targets = [...new Set([...outbox.slice(0, 5), ...inbox.slice(0, 5), ...DEFAULT_RELAYS])];
+      const results = await reader.publish(event, targets);
+      const accepted = targets.filter((_, i) => results[i].status === "fulfilled");
+      if (!accepted.length) throw new Error("no relay accepted it");
+      const nevent = nip19.neventEncode({ id: event.id, author: event.pubkey, relays: accepted.slice(0, 2) });
+      fill(el, h("p", {}, `Receipt posted on ${accepted.length} of ${targets.length} relays · `,
+        h("a", { href: `https://njump.me/${nevent}`, target: "_blank", rel: "noopener" }, "see the note")));
+      onPosted?.();
+    } catch (e) {
+      fill(el, h("p", { class: "error" }, `Not posted: ${e.message || e}`), h("button", { type: "button", onclick: start }, "Back"));
+    } finally {
+      reader.close();
+    }
+  }
+  start();
+  return el;
+}
+
+/** Recent payments: receipts on Nostr for this name, each checked on chain in this browser. → { el, load } */
+function receiptsCard(r, who, me) {
+  const list = h("ul", { class: "receipts", hidden: true });
+  const note = h("div", { class: "muted small" });
+  const el = h("section", { class: "card" }, h("h2", {}, "Recent payments"), list, note);
+  const entry = (row, p) => {
+    const name = p?.name ?? shortKey(row.npub);
+    const avatar = p?.picture
+      ? h("img", { class: "avatar", src: p.picture, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.target.replaceWith(initial(name)) })
+      : initial(name);
+    return h("li", { class: "who" }, avatar,
+      h("div", { class: "grow" },
+        h("p", { class: "line" }, h("a", { href: `#/${row.npub}` }, h("b", {}, name)), ` paid ${formatBch(row.sats)} BCH`),
+        h("p", { class: "meta" },
+          row.proof === "bound" ? h("span", { class: "proof" }, "✓ from their bound address") : "says it was them",
+          ` · ${row.height > 0 ? ago(Math.max(0, Date.now() / 1000 - row.created_at)) : "not in a block yet"} · `, txLink(row.txid, "transaction"))));
+  };
+  let run = 0;
+  async function load() {
+    const mine = ++run;
+    const live = () => mine === run && me === nav;
+    fill(note, h("div", { class: "loading" }, spinner(), "Looking for receipts on Nostr, then checking each payment on chain…"));
+    const nostr = relayReader();
+    const shown = [], pending = [];
+    try {
+      const add = async (row, rank) => {
+        const profile = await nostr.fetchProfile(row.pubkey).catch(() => null);
+        if (!live()) return;
+        shown[rank] = entry(row, profile);
+        list.hidden = false;
+        fill(list, shown.filter(Boolean));
+      };
+      await listReceipts({ payee: { pubkey: who.pubkey, address: r.address }, nostr, chain: await chain(), onRow: (row, rank) => pending.push(add(row, rank)) });
+      await Promise.all(pending);
+    } catch (e) {
+      if (live()) fill(note, h("p", { class: "error" }, `Couldn't read the receipts: ${e.message}`), h("button", { type: "button", onclick: load }, "Try again"));
+      return;
+    } finally {
+      nostr.close();
+    }
+    if (!live()) return;
+    fill(note, shown.some(Boolean)
+      ? "Receipts are public Nostr notes that point at a payment; each one here pays this name on chain. Anyone can post one about any payment, so a payer is proven only when their own bound address signed it."
+      : "No public receipts yet. After paying, you can post one from your Nostr name.");
+  }
+  return { el, load };
 }
 
 // ── WizardConnect ────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ Built for [BCH BLAZE 2026](https://dorahacks.io/hackathon/bchblaze2026) by one h
 **Live**
 - The site: https://mythos-builds.github.io/countersign/
 - Bind your Nostr name to your BCH wallet: https://mythos-builds.github.io/countersign/#/bind
-- Pay a bound name (Countersign's own): https://mythos-builds.github.io/countersign/#/npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95
+- Pay a bound name (Countersign's own), and see its recent payments: https://mythos-builds.github.io/countersign/#/npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95
 - A separate demo app that signs people in with their key: https://mythos-builds.github.io/countersign/demo-login/
 - The project as it stood when hacking began: https://mythos-builds.github.io/countersign/start-2026-11-14/
 
@@ -112,6 +112,12 @@ An npub that has not bound cannot be paid, by design: deriving a BCH address fro
 
 Coins carrying CashTokens are never spent, by the payment or by the commitment: spending them in a transaction that doesn't carry the tokens on would burn them.
 
+### Receipts on Nostr
+
+After « Paid ✓ », the payer can post a receipt: a public note from their Nostr name (a browser extension, or the name made on the bind page) that tags the payee, so the payee is notified in any Nostr client, and points at the transaction with NIP-73's id, `bitcoincash:tx:<txid>`. The pay page lists a name's **Recent payments** from these notes, and checks each one on chain first: the transaction must pay the name's bound address, and the amount shown is the chain's, not the note's.
+
+Anyone can post a note about anyone's payment, so the page says who paid only as far as the chain proves it: **« from their bound address »** when the payer's own bound address signed the payment, otherwise **« says it was them »**. One row per payment; a proven payer beats an earlier claim. Tested on mainnet on November 14: the reference wallet paid Countersign's name 0.00001 BCH through the page (tx `c5814de6…3d05`), the demo name posted the receipt, and the page and a cold check from Node both list it as « from their bound address ».
+
 ## Setup
 
 Node 22 or newer (the Fulcrum client uses the built-in WebSocket).
@@ -146,7 +152,7 @@ node scripts/bind.mjs --wif-file <f> --nostr-key-file <f> [--chipnet] [--dry-run
 | `verifyCommitment(chain, txid, address)` | The BCH half alone → `{ npub, pubkey }` or `{ error }` |
 | `findByAddress(address, { nostr, chain })` | The current binding of an address, with `via: ["relays", "chain"]` |
 | `resolveName(text)` | npub, nprofile, hex, `nostr:` link or `name@domain` → `{ pubkey, npub, relays }` |
-| `relayReader({ relays? })` | Reads claims (`fetchClaim`, `claimsFor`), profiles and relay lists; publishes events |
+| `relayReader({ relays? })` | Reads claims (`fetchClaim`, `claimsFor`), receipts (`mentions`), profiles and relay lists (`writeRelays`, `readRelays`); publishes events |
 | `fulcrumChain(servers?)` | Read-only chain access: transactions (hash-checked), history, headers, coins, broadcast, address watch |
 | `buildCommitment({ address, npub, coins })` | The unsigned commitment from the address's own coins, for a wallet to sign |
 | `buildClaim(current, address, txid)` | The kind 10011 event to sign, merged into the current one |
@@ -154,11 +160,12 @@ node scripts/bind.mjs --wif-file <f> --nostr-key-file <f> [--chipnet] [--dry-run
 | `findAddressPath(pubkeyAt, address)` | Where an address sits in a wallet seen through its public keys (receive or change, and its index) |
 | `loginTemplate(challenge)`, `authorizationHeader(event)` | The client's side of a login |
 | `buildPayment`, `scanWallet`, `paidTo`, `paymentUri` | Payments by name |
+| `receiptTemplate({ payee, txid, sats })`, `listReceipts({ payee, nostr, chain })`, `verifyReceipt(note, …)` | Receipts on Nostr: the note to sign, and the checked list of a name's payments (`proof: "bound"` or `"claim"`) |
 
 ## Layout
 
-- `lib/`: the library (binding, verification, discovery, login, payments, Fulcrum client).
-- `app/`: the site (`#/<name>` pays, `#/bind` binds) and `app/demo-login/`, a separate app that imports only the library and nostr-tools.
+- `lib/`: the library (binding, verification, discovery, login, payments, receipts, Fulcrum client).
+- `app/`: the site (`#/<name>` pays and lists receipts, `#/bind` binds, `#/wall` lists names) and `app/demo-login/`, a separate app that imports only the library and nostr-tools.
 - `examples/`: the login server and client in Node.
 - `scripts/`: bind and verify from the command line.
 - `test/`: offline tests, attacks included.

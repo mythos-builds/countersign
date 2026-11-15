@@ -52,8 +52,11 @@ Result: `{status, npub, address, txid, confirmations, boundSince, warnings, reas
 - **The wall** (`listWall`): relay filter `{"kinds":[10011], "#t":["countersign"]}`, newest claim per author. A relay only suggests a name: its newest claim, read from its own relays too, must still carry the tag (a person leaves the wall by publishing a claim without it), then the binding goes through §5. Only `verified` and `pending` names are shown, newest claim first, at most 30, four checks at a time.
 
 ## 8. Paying a name
-- **WizardConnect rail**: the page builds the payment from the payer's own coins (found from the wallet's public keys), the wallet signs and broadcasts (`broadcast: true`, said in words on the page). The page checks the signed transaction has exactly the outputs it built before sending a copy itself.
-- **Plain rail**: a `bitcoincash:` payment link / QR for any wallet; « paid » detected live through a Fulcrum address subscription.
+1. **WizardConnect rail**: the page builds the payment from the payer's own coins (found from the wallet's public keys), the wallet signs and broadcasts (`broadcast: true`, said in words on the page). The page checks the signed transaction has exactly the outputs it built before sending a copy itself.
+2. **Plain rail**: a `bitcoincash:` payment link / QR for any wallet; « paid » detected live through a Fulcrum address subscription.
+3. **Receipts** (optional, public; `lib/receipt.mjs`). After a payment the payer may post a **kind 1 note** signed by their Nostr key (`receiptTemplate`): content « Paid nostr:<payee npub> <amount> BCH on chain with Countersign. » and an explorer link (plus the payee's pay link when the page is served over HTTPS); tags `["p", <payee>]` (the payee is notified), `["i", "bitcoincash:tx:<txid>", <explorer URL>]` and `["k", "bitcoincash:tx"]` (NIP-73's blockchain transaction id; NIP-73 names no word for BCH, so the word of its URI scheme and addresses), `["t", "countersign"]`. Sent to the payer's write relays, the payee's read relays (NIP-65) and the five defaults.
+   **Listing** (`listReceipts`): filter `{"kinds":[1], "#p":[<payee>], "#t":["countersign"]}` on the payee's read relays and the defaults. A note counts only if: its signature verifies on a fresh copy · it names exactly one BCH transaction · its author is not the payee · the txid is in the payee's address history · the transaction, fetched and re-hashed, carries no input with the payee's own key (the payee's change is no payment) · it pays the payee's bound address. The amount shown is what the chain says it pays, never the note's text.
+   **Who paid**: anyone can post a note about anyone's payment, so a note alone proves nothing about the payer. It is `bound` only when its author's own binding verifies (§5) and that bound address signed an input of the payment over every output (§5.5–5.6: parents re-hashed, the allowed sighash bytes, the VM); otherwise it is a `claim`, shown as « says it was them ». One row per transaction: a `bound` note wins, otherwise the earliest note; newest payments first (unconfirmed, then by height); at most 20 transactions and 5 notes each are checked.
 - Paying an npub that has not bound is not possible by design (deriving an address from a Nostr key = the key reuse the bounty forbids).
 
 ## 9. Login (challenge-response, another app)
@@ -75,6 +78,7 @@ Deployment notes: tie each nonce to the browser session that asked for it (a coo
 - A stolen Nostr key can re-point the claim, but not forge a commitment; « bound since » and the `new` warning are the user's defence. A tricked wallet can only attach its own address.
 - A commitment cannot make a verifier do unbounded work: at most 20 inputs (§3.4), at most 30 later transactions read (§5.9), 50 history entries on the chain road (§7).
 - Profile data shown from kind 0 is reduced to plain strings; pictures are `https://` only.
+- A receipt can point at anyone's payment: only a `bound` proof names the payer, and amounts come from the chain (§8.3).
 
 ## 11. Open
 Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bindings · a rotation screen (the « latest commitment wins » rule already covers it) · a public directory from the `t` tag · the courtesy PR for `CSG\0` in the protocol registry.
