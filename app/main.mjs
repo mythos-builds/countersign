@@ -412,17 +412,21 @@ function connectWallet(el, onReady) {
   let dapp, relay, readyOnce, stall;
   function stop() {
     clearTimeout(stall);
-    try { dapp?.sendDisconnect("page closed").catch(() => {}); } catch { /* not connected */ }
-    relay?.cleanup();
-    dapp?.destroy();
+    const [d, r] = [dapp, relay];
     dapp = relay = null;
+    if (!d) return;
+    // Let the goodbye (and any message still on its way to a slower relay) leave before the sockets close.
+    const bye = Promise.resolve().then(() => d.sendDisconnect("page closed")).catch(() => {});
+    Promise.race([bye, new Promise((res) => setTimeout(res, 1500))]).finally(() => { r.cleanup(); d.destroy(); });
   }
   function start() {
     stop();
     readyOnce = false;
-    dapp = new DappConnectionManager("Countersign", undefined, { session: false });
-    relay = initiateDappRelay(({ client, status }) => dapp.updateConnection(client, status));
-    dapp.attachRelay(relay);
+    // Each relay reports to its own session: a closing one must never reach the next (or a null one).
+    const session = new DappConnectionManager("Countersign", undefined, { session: false });
+    relay = initiateDappRelay(({ client, status }) => session.updateConnection(client, status));
+    session.attachRelay(relay);
+    dapp = session;
     const qr = h("div", { class: "qr" });
     qr.innerHTML = renderSVG(relay.qrUri);
     const waiting = h("p", { class: "muted" }, "Waiting for your wallet…");
@@ -434,7 +438,7 @@ function connectWallet(el, onReady) {
     // WizardConnect gives up silently when a key exchange stalls (« Key exchange timed out » in the console): offer a fresh code.
     stall = setTimeout(() => { if (!readyOnce && dapp === d) waiting.append(" Stuck? ", h("button", { type: "button", class: "link", onclick: start }, "Get a fresh code")); }, 45_000);
     d.on("walletready", () => { if (!readyOnce) { readyOnce = true; onReady(d); } });
-    d.on("disconnect", () => fill(el, h("p", {}, "The wallet disconnected."), h("button", { type: "button", class: "primary", onclick: start }, "Connect again")));
+    d.on("disconnect", () => { if (dapp === d) fill(el, h("p", {}, "The wallet disconnected."), h("button", { type: "button", class: "primary", onclick: start }, "Connect again")); });
   }
   start();
   cleanups.push(stop);
