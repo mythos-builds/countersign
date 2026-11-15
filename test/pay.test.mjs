@@ -1,6 +1,7 @@
 // Offline tests for paying a name: amounts, the payment builder, the wallet scan, and name lookup.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
 import { parseBch, formatBch, paymentUri, paidTo, buildPayment, buildCommitment, scanWallet, signP2pkh, resolveName, DUST } from "../lib/index.mjs";
@@ -123,6 +124,14 @@ test("names: NIP-05 lookups use the exact name, no redirects, and check the key"
   await assert.rejects(resolveName("bob@example.com", { fetchImpl }), /doesn't list the name/);
   await assert.rejects(resolveName("bad@example.com", { fetchImpl }), /doesn't list the name/);
   await assert.rejects(resolveName("x@down.example", { fetchImpl: async () => ({ ok: false, status: 404 }) }), /answered 404/);
+});
+
+test("names: the shipped .well-known/nostr.json makes « countersign.cash » Countersign's own name", async () => {
+  const doc = JSON.parse(await readFile(new URL("../app/public/.well-known/nostr.json", import.meta.url), "utf8"));
+  const r = await resolveName("countersign.cash", { fetchImpl: async () => ({ ok: true, json: async () => doc }) });
+  assert.equal(r.npub, "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95");
+  assert.equal(r.via, "_@countersign.cash");
+  assert.ok(r.relays.length > 0);
 });
 
 test("a commitment from a wallet: fee sized for an ECDSA signer, WizardConnect paths and outpoints", () => {

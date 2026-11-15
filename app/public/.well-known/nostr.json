@@ -1,0 +1,8 @@
+{
+  "names": {
+    "_": "6285f99a887ecf5f4ab68d5b17f44a692d270ffd10747481d98e1f3cdba0faec"
+  },
+  "relays": {
+    "6285f99a887ecf5f4ab68d5b17f44a692d270ffd10747481d98e1f3cdba0faec": ["wss://relay.primal.net", "wss://relay.snort.social", "wss://offchain.pub", "wss://relay.damus.io", "wss://nos.lol"]
+  }
+}
