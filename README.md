@@ -10,6 +10,7 @@ Built for [BCH BLAZE 2026](https://dorahacks.io/hackathon/bchblaze2026) by one h
 - Pay a bound name (Countersign's own), and see its recent payments: https://mythos-builds.github.io/countersign/#/npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95
 - A separate demo app that signs people in with their key: https://mythos-builds.github.io/countersign/demo-login/
 - The project as it stood when hacking began: https://mythos-builds.github.io/countersign/start-2026-11-14/
+- The deck (on the BCH BLAZE "Widget Factory" template): https://mythos-builds.github.io/countersign/deck/countersign-deck.pdf
 
 The site is static files. Every check runs in your browser; relays and public Bitcoin Cash servers are only read from.
 

@@ -20,6 +20,12 @@ code { font: 0.9em var(--mono); background: var(--code); padding: 0.1em 0.35em; 
 .quiet { color: var(--muted); font-size: 0.95rem; }
 main { max-width: 40rem; margin: 0 auto; padding: 0 1rem 2rem; }
 .foot { max-width: 40rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--line); }
+.blaze { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.1rem 0.9rem; padding: 0.5rem 1rem; background: var(--code); color: var(--muted); font-size: 0.85rem; text-align: center; }
+.blaze strong { color: var(--ink); font-weight: 600; }
+.blaze code { background: none; padding: 0; }
+.blaze .link { font-size: inherit; padding: 0 0.15rem; }
+.addr-short { display: none; }
+@media (max-width: 40rem) { .addr-full { display: none; } .addr-short { display: inline; } }
 
 .hero { padding: 3.5rem 0 2rem; }
 h1 { font: 600 clamp(2rem, 7vw, 3rem)/1.08 var(--serif); letter-spacing: -0.02em; margin: 0 0 1rem; }

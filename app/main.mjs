@@ -68,6 +68,8 @@ function route() {
   else showHome();
   window.scrollTo(0, 0);
 }
+// The BLAZE banner is static markup; its copy button gets the same behaviour as the others.
+for (const b of document.querySelectorAll("[data-copy]")) b.replaceWith(copyButton(b.dataset.copy));
 window.addEventListener("hashchange", route);
 route();
 
