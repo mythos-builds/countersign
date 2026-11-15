@@ -42,7 +42,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .pay { background: var(--accent); color: #062b1f; border-color: var(--accent); width: 100%; font-size: 1.1rem; padding: 1rem; }
 .link { background: none; border: none; padding: 0.2rem; color: var(--muted); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
 .try { color: var(--muted); margin-top: 1.2rem; }
-.error { color: var(--bad); }
+.error { color: var(--bad); overflow-wrap: anywhere; }
 .muted { color: var(--muted); }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.4rem; margin: 1.5rem 0 1rem; }
@@ -74,7 +74,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
-.loading { display: flex; gap: 0.8rem; align-items: center; }
+.loading { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; }   /* an error + « Try again » wrap on a phone */
 
 details { margin: 0.5rem 0 1rem; color: var(--muted); font-size: 0.92rem; }
 summary { cursor: pointer; padding: 0.4rem 0; }
