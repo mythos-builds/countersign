@@ -188,3 +188,16 @@ test("the list: one row per payment, newest first, a proven payer over earlier c
   assert.deepEqual(seen.sort(), [fresh, proven, older].sort());
   assert.deepEqual(await listReceipts({ payee: target(payee), nostr: relaysOf([], []), chain }), []);
 });
+
+test("the list: backdated notes can't bury a proven payer, however many; the payment is fetched once", async () => {
+  const chain = memoryChain();
+  const payee = bind(chain), payer = bind(chain), mallory = nostrKey();
+  const txid = pay(chain, payer.key, [payer.coin], payee.key.address, 2_000n);
+  const notes = [receipt(payer.id, payee, txid, 2_000n, { created_at: NOW })];
+  for (let i = 1; i <= 12; i++) notes.push(receipt(mallory, payee, txid, 2_000n, { created_at: NOW - 10_000 - i })); // dated before it
+  let fetched = 0;
+  const counting = { ...chain, getTx: (id) => { if (id === txid) fetched++; return chain.getTx(id); } };
+  const rows = await listReceipts({ payee: target(payee), nostr: relaysOf(notes, [payee.claim, payer.claim]), chain: counting, now: NOW });
+  assert.deepEqual(rows.map((r) => [r.npub, r.proof]), [[payer.id.npub, "bound"]]);
+  assert.equal(fetched, 1);
+});

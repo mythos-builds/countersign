@@ -416,11 +416,17 @@ function receiptsCard(r, who, me) {
     const avatar = p?.picture
       ? h("img", { class: "avatar", src: p.picture, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.target.replaceWith(initial(name)) })
       : initial(name);
+    // A claim is anyone's word, and anyone can date a note early: no name or picture of theirs as the headline.
+    if (row.proof !== "bound") return h("li", { class: "who" }, initial("?"),
+      h("div", { class: "grow" },
+        h("p", { class: "line" }, `Someone paid ${formatBch(row.sats)} BCH`),
+        h("p", { class: "meta" }, "a note by ", h("a", { href: `#/${row.npub}` }, shortKey(row.npub)), " says it was them, unproven",
+          ` · ${row.height > 0 ? "in a block" : "not in a block yet"} · `, txLink(row.txid, "transaction")))); // its date is its author's word too
     return h("li", { class: "who" }, avatar,
       h("div", { class: "grow" },
         h("p", { class: "line" }, h("a", { href: `#/${row.npub}` }, h("b", {}, name)), ` paid ${formatBch(row.sats)} BCH`),
         h("p", { class: "meta" },
-          row.proof === "bound" ? h("span", { class: "proof" }, "✓ from their bound address") : "says it was them",
+          h("span", { class: "proof" }, "✓ from their bound address"),
           ` · ${row.height > 0 ? ago(Math.max(0, Date.now() / 1000 - row.created_at)) : "not in a block yet"} · `, txLink(row.txid, "transaction"))));
   };
   let run = 0;
@@ -432,7 +438,7 @@ function receiptsCard(r, who, me) {
     const shown = [], pending = [];
     try {
       const add = async (row, rank) => {
-        const profile = await nostr.fetchProfile(row.pubkey).catch(() => null);
+        const profile = row.proof === "bound" ? await nostr.fetchProfile(row.pubkey).catch(() => null) : null;
         if (!live()) return;
         shown[rank] = entry(row, profile);
         list.hidden = false;
