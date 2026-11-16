@@ -196,6 +196,21 @@ test("a later commitment signed by the same address supersedes the binding", asy
   assert.equal((await check(chain, second)).status, "verified");
 });
 
+test("the newest commitment from the address decides: N1, then N2, then N1 again leaves N1 current, whichever commitment its claim names", async () => {
+  const chain = memoryChain();
+  const first = bind(chain, { height: 899_990 }); // N1
+  const second = bind(chain, { key: first.key, height: 899_992 }); // N2
+  const again = bind(chain, { key: first.key, id: first.id, height: 899_994 }); // N1 again, the newest
+  const nostr = (...claims) => ({ fetchClaim: async (pk) => ({ claim: claims.find((c) => c.pubkey === pk) ?? null }) });
+  const r1 = await verifyBinding(first.id.npub, { nostr: nostr(first.claim), chain, now: T0 + 3 * 86400 }); // its claim still names the first
+  assert.equal(r1.status, "verified");
+  assert.equal(r1.txid, first.txid);
+  assert.equal((await verifyBinding(first.id.npub, { nostr: nostr(again.claim), chain, now: T0 + 3 * 86400 })).status, "verified");
+  const r2 = await check(chain, second);
+  assert.equal(r2.status, "superseded");
+  assert.deepEqual(r2.supersededBy, { npub: first.id.npub, txid: again.txid });
+});
+
 /** A stranger pays the address 546 sat n times, listed in its history from `height` on. No key of the address needed. */
 function strangerPays(chain, key, n, height) {
   const stranger = bchKey();
