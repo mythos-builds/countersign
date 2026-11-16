@@ -1,6 +1,8 @@
 // Offline tests for the login (spec §9): NIP-98 answers to single-use challenges.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19, nip98 } from "nostr-tools";
 import * as L from "@bitauth/libauth";
 import { loginGate, loginTemplate, authorizationHeader, LOGIN_KIND, signP2pkh, p2pkhAddress, findAddressPath, walletProofTransaction, TAG } from "../lib/index.mjs";
@@ -60,7 +62,25 @@ test("login: a forged or mangled answer is refused", () => {
   assert.match(g.check(undefined, post(c)).error, /header/);
   assert.match(g.check("Bearer abc", post(c)).error, /header/);
   assert.match(g.check("Nostr bm90IGpzb24=", post(c)).error, /JSON/);
+  for (const json of ["null", "5", '"x"', "true", "[]", "{}"]) assert.match(g.check("Nostr " + btoa(json), post(c)).error, /signature/); // JSON, not an event: an answer, never a throw
   assert.ok(g.check(authorizationHeader(signed), post(c)).pubkey); // nothing above spent it
+});
+
+test("login: the example server answers bad requests and stays up", async () => {
+  const origin = `http://127.0.0.1:${40_000 + Math.floor(Math.random() * 20_000)}`;
+  const server = spawn(process.execPath, [fileURLToPath(new URL("../examples/login-server.mjs", import.meta.url))], { env: { ...process.env, ORIGIN: origin }, stdio: ["ignore", "pipe", "pipe"] });
+  const exited = new Promise((res) => server.on("exit", (code) => res(`exited (${code})`)));
+  try {
+    await new Promise((res, rej) => {
+      server.stdout.on("data", (d) => String(d).includes("login demo on") && res());
+      exited.then(rej);
+      setTimeout(() => rej(new Error("the example server didn't start in 5 s")), 5_000).unref();
+    });
+    const status = (path, init) => fetch(origin + path, init).then((r) => r.status);
+    assert.equal(await status(`/login?nonce=${"0".repeat(32)}`, { method: "POST", headers: { authorization: "Nostr " + btoa("null") } }), 401);
+    assert.equal(await status("//", { method: "POST" }), 500); // not a URL: the handler throws, the server answers
+    assert.equal(await Promise.race([exited, status("/challenge")]), 200);
+  } finally { server.kill(); }
 });
 
 test("login: a challenge answered too late has expired", () => {

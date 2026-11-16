@@ -12,7 +12,7 @@ let chainP;
 const chain = () => (chainP ??= fulcrumChain().catch((e) => { chainP = null; throw e; }));
 const send = (res, code, body) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(body, null, 2));
 
-http.createServer(async (req, res) => {
+const app = async (req, res) => {
   const url = new URL(req.url, ORIGIN);
   if (req.method === "GET" && url.pathname === "/challenge") return send(res, 200, gate.challenge());
   if (req.method === "POST" && url.pathname === "/login") {
@@ -36,4 +36,11 @@ http.createServer(async (req, res) => {
     return send(res, r.error ? 401 : 200, r);
   }
   send(res, 404, { error: "GET /challenge, then POST to the URL it gives with « Authorization: Nostr <signed event> »" });
-}).listen(Number(new URL(ORIGIN).port || 80), () => console.log(`login demo on ${ORIGIN}`));
+};
+
+// One bad request must never take the server down (a path like « // » doesn't even parse as a URL).
+http.createServer((req, res) => app(req, res).catch((e) => {
+  console.error(e);
+  if (res.headersSent) res.end();
+  else send(res, 500, { error: "this request broke something on the server" });
+})).listen(Number(new URL(ORIGIN).port || 80), () => console.log(`login demo on ${ORIGIN}`));
