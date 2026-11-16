@@ -111,7 +111,7 @@ A phone often drops the page's connections while you approve in the wallet app: 
 
 An npub that has not bound cannot be paid, by design: deriving a BCH address from a Nostr key would be the key reuse the bounty forbids.
 
-Coins carrying CashTokens are never spent, by the payment or by the commitment: spending them in a transaction that doesn't carry the tokens on would burn them.
+Coins carrying CashTokens are never spent, by the payment or by the commitment: spending them in a transaction that doesn't carry the tokens on would burn them. A server's coin list isn't taken on its word: each coin is checked against its parent transaction, fetched and re-hashed.
 
 ### Receipts on Nostr
 

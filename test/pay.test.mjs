@@ -70,19 +70,37 @@ test("payments under dust and to a non-P2PKH address are refused", () => {
   assert.throws(() => buildPayment({ coins: [coin(payer, 20_000n)], to: typeof p2sh === "string" ? p2sh : p2sh.address, satoshis: 10_000n, changeLockingBytecode: payer.lock }), /only P2PKH/);
 });
 
-test("the wallet scan follows the gap limit, skips token coins and picks a fresh change address", async () => {
+test("the wallet scan follows the gap limit, checks each coin against its parent, skips token coins and picks a fresh change address", async () => {
   const keys = new Map(); // "child/index" → key
   const keyAt = (child, index) => {
     const id = `${child}/${index}`;
     if (!keys.has(id)) keys.set(id, bchKey());
     return keys.get(id);
   };
-  const used = new Map([[keyAt(0, 0).address, [{ value: 5_000, tx_hash: "11".repeat(32), tx_pos: 1 }]],
-    [keyAt(0, 25).address, [{ value: 7_000, tx_hash: "22".repeat(32), tx_pos: 0 }, { value: 9_000, tx_hash: "33".repeat(32), tx_pos: 2, token_data: { amount: "5" } }]],
+  const txs = new Map();
+  const parent = (outputs) => {
+    const raw = L.encodeTransaction({ version: 2, locktime: 0, outputs,
+      inputs: [{ outpointTransactionHash: rand(32), outpointIndex: 0, sequenceNumber: 0, unlockingBytecode: Uint8Array.of(0x51) }] });
+    txs.set(L.hashTransaction(raw), raw);
+    return L.hashTransaction(raw);
+  };
+  const [a, b] = [keyAt(0, 0), keyAt(0, 25)];
+  const token = { category: rand(32), amount: 5n };
+  const t1 = parent([{ lockingBytecode: b.lock, valueSatoshis: 1_000n }, { lockingBytecode: a.lock, valueSatoshis: 5_000n }]);
+  const t2 = parent([{ lockingBytecode: b.lock, valueSatoshis: 7_000n }, ...[8_000n, 9_000n].map((v) => ({ lockingBytecode: b.lock, valueSatoshis: v, token }))]);
+  const used = new Map([[a.address, [{ value: 5_000, tx_hash: t1, tx_pos: 1 }]],
+    [b.address, [
+      { value: 7_000, tx_hash: t2, tx_pos: 0 },
+      { value: 9_000, tx_hash: t2, tx_pos: 2, token_data: { amount: "5" } }, // the server says it carries tokens
+      { value: 8_000, tx_hash: t2, tx_pos: 1 }, // the server hides it, the parent says so: spending it would burn the tokens
+      { value: 99_000, tx_hash: t1, tx_pos: 0 }, // a value the parent doesn't have
+      { value: 4_000, tx_hash: "55".repeat(32), tx_pos: 0 }, // a parent no server returns
+    ]],
     [keyAt(1, 0).address, []]]); // a change address used once and emptied
   const chain = {
-    getHistory: async (a) => (used.has(a) ? [{ tx_hash: "44".repeat(32), height: 1 }] : []),
-    listCoins: async (a) => used.get(a) ?? [],
+    getHistory: async (addr) => (used.has(addr) ? [{ tx_hash: "44".repeat(32), height: 1 }] : []),
+    listCoins: async (addr) => used.get(addr) ?? [],
+    getTx: async (id) => { if (!txs.has(id)) throw new Error("not found"); return txs.get(id); },
   };
   const { coins, change } = await scanWallet(chain, (child, i) => keyAt(child, Number(i)).pub);
   assert.deepEqual(coins.map((c) => [c.satoshis, c.path]), [[5_000n, ["receive", 0]], [7_000n, ["receive", 25]]]);
