@@ -293,7 +293,7 @@ function welcome({ npub, bch, profile }) {
       ? [
           h("p", {}, "Your Bitcoin Cash address, bound to this key:"),
           h("code", {}, bch.address),
-          h("p", { class: `status ${bch.status}` }, bch.status === "verified" ? `Verified · ${bch.confirmations} confirmation${plural}` : "Pending · the binding waits for its first block"),
+          h("p", { class: `status ${bch.status}` }, bch.status === "verified" ? (bch.confirmations == null ? "Verified · age unknown" : `Verified · ${bch.confirmations} confirmation${plural}`) : "Pending · the binding waits for its first block"),
           h("p", {}, "Other members can pay you without asking for an address: ", h("a", { href: `${SITE}#/${npub}` }, "your pay page"), "."),
         ]
       : h("p", {}, bch.status === "unknown"

@@ -229,7 +229,7 @@ test("a history that is unavailable, leaves out the commitment, or lists what no
   const chain = memoryChain();
   const b = bind(chain);
   assert.match((await check({ ...chain, getHistory: async () => { throw new Error("timeout"); } }, b)).reason, /address history is unavailable/);
-  assert.match((await check({ ...chain, getHistory: async () => [] }, b)).reason, /doesn't list the commitment/);
+  assert.match((await check({ ...chain, getHistory: async () => [] }, b)).reason, /don't list the commitment/);
   const second = bind(chain, { key: b.key, height: 899_995 });
   chain.txs.delete(L.binToHex(second.signed.inputs[0].outpointTransactionHash)); // the rotation's parent: gone
   assert.match((await check(chain, b)).reason, /later commitment's parents couldn't be read/);
@@ -237,6 +237,29 @@ test("a history that is unavailable, leaves out the commitment, or lists what no
   const r = await check(chain, b);
   assert.equal(r.status, "unchecked");
   assert.match(r.reason, /later transaction in the address history couldn't be read/);
+});
+
+test("the history is put in height order: a server that reverses it can't swap the old and the new name", async () => {
+  const chain = memoryChain();
+  const first = bind(chain);
+  const second = bind(chain, { key: first.key, height: 899_995 });
+  const reversed = { ...chain, getHistory: async (a) => [...(await chain.getHistory(a))].reverse() };
+  assert.equal((await check(reversed, first)).status, "superseded");
+  assert.equal((await check(reversed, second)).status, "verified");
+});
+
+test("servers that disagree about the history leave the binding unchecked; no usable tip or header leaves its age unknown", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  const split = { ...chain, getHistory: async () => { throw Object.assign(new Error("the servers disagree"), { disputed: true }); } };
+  assert.match((await check(split, b)).reason, /^the servers disagree about the address history, so a newer binding can't be ruled out$/);
+  for (const broken of [{ getTipHeight: async () => 10 }, { getHeader: async () => { throw new Error("timeout"); } }]) {
+    const r = await check({ ...chain, ...broken }, b);
+    assert.equal(r.status, "verified"); // in a block, as the history says, but shown as new
+    assert.equal(r.confirmations, null);
+    assert.equal(r.boundSince, null);
+    assert.ok(r.warnings.includes("new"));
+  }
 });
 
 test("a claim whose signature doesn't verify is refused", async () => {

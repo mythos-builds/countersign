@@ -185,6 +185,8 @@ function statusBox(r) {
   const careful = " If you know this person, check it with them before sending much.";
   switch (r.status) {
     case "verified":
+      if (r.confirmations == null) return h("div", { class: "status warn" }, h("b", {}, "Verified, age unknown"),
+        "The commitment is in a block, but the Bitcoin Cash servers didn't agree on its height or time, so treat it as new." + careful);
       return h("div", { class: `status ${isNew ? "warn" : "ok"}` }, h("b", {}, isNew ? "Verified, and new" : "Verified"),
         `${since}, ${r.confirmations} confirmation${r.confirmations === 1 ? "" : "s"}.`, isNew ? " Less than a day old." + careful : "");
     case "pending":
@@ -209,7 +211,7 @@ function howChecked(who, r, servers) {
     r.txid && "Claim: the name's newest NIP-39 identity list (kind 10011) from Nostr relays, its signature checked in this browser.",
     r.txid && ["Commitment: ", txLink(r.txid, `transaction ${r.txid.slice(0, 10)}…`),
       " and each of its parents, fetched and re-hashed; signed by the address over every output; run through the BCH virtual machine here; its data output names this npub."],
-    r.status === "verified" && `${r.confirmations} confirmation${r.confirmations === 1 ? "" : "s"}; first block at ${new Date(r.boundSince * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC.`,
+    r.status === "verified" && r.boundSince && `${r.confirmations} confirmation${r.confirmations === 1 ? "" : "s"}; first block at ${new Date(r.boundSince * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC.`,
     r.status === "pending" && "Not in a block yet.",
     ...(r.warnings ?? []).filter((w) => w !== "new").map(sentence),
     servers.length && `Chain servers: ${servers.map((u) => new URL(u).hostname).join(", ")}.`,

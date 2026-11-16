@@ -64,10 +64,10 @@ Where things live: the claim on Nostr relays, the commitment on the Bitcoin Cash
 5. **Who signed it.** Fetch every parent transaction and hash each one too. One input must spend a coin locked to the claimed address, with an unlock of `<signature> <public key>` where `hash160(public key)` equals the address, and a sighash byte that covers every output (`0x41`, `0x61`, `0xC1` or `0xE1`), so the signature cannot be reused with another data output.
 6. **The signatures themselves.** Run the BCH virtual machine (libauth, consensus rules) on the whole transaction with the real parent outputs. Any failure means invalid.
 7. **No key reuse.** The BCH public key's x-coordinate must differ from the Nostr key.
-8. **Age.** From the address history: at least one confirmation means `verified`; mempool only means `pending` (payable, shown as new). "Bound since" is the block's time.
+8. **Age.** From the address history: at least one confirmation means `verified`; mempool only means `pending` (payable, shown as new). "Bound since" is the block's time. Heights, block times and the history carry no hash, so every server the page reaches is asked: the fewest confirmations, the newest block time and the history most of them give are kept; when they can't agree, the age is unknown (shown as new) or the binding is `unchecked`.
 9. **Is it still current?** A later transaction from the same address that passes this same check and names another npub makes the binding `superseded`. Anyone can send coins *to* an address, so only a transaction signed *by* it counts. Anyone can also bury a rotation under small payments, so when the later history can't be read in full (more than 300 transactions, or a server that leaves things out) the binding is `unchecked`: never payable, and a login app treats the key as having no address.
 
-Relays and servers can hide data, never forge it: signatures, hashes and the virtual machine decide. The tests in [test/offline.test.mjs](test/offline.test.mjs) try the attacks: someone else's transaction naming you, a transaction sent to the address, sighash NONE and SINGLE, two data outputs, a forged transaction or parent, the same key on both sides, a claim signed by the wrong key, a broken signature.
+Relays and servers can't forge a binding: signatures, hashes and the virtual machine decide. The tests in [test/offline.test.mjs](test/offline.test.mjs) try the attacks: someone else's transaction naming you, a transaction sent to the address, sighash NONE and SINGLE, two data outputs, a forged transaction or parent, the same key on both sides, a claim signed by the wrong key, a broken signature.
 
 ## Discovery
 
@@ -178,7 +178,7 @@ node scripts/bind.mjs --wif-file <f> --nostr-key-file <f> [--chipnet] [--dry-run
 - P2PKH addresses only for now; P2SH and multisig are not covered.
 - Binding in the browser needs a wallet that speaks WizardConnect. Paytaca paid through the page and bound a name on mainnet (November 14). Cashonize and our own reference wallet also sign the current request format (November 14: a test signature on a made-up coin, never broadcast). On an iPhone, Paytaca opens no `wiz://` link, so the page offers the connection link to paste in Paytaca (Apps → WizardConnect → Paste URL); tested end to end on November 14 (an iPhone alone, Safari and Paytaca, a real payment through the page).
 - Wallets show the data output as raw bytes, so the page says in words what the wallet is asked to sign.
-- Relays or servers that are down or hiding data can make a bound name look unbound. They cannot make a false binding pass.
+- Relays or servers that are down or hiding data can make a bound name look unbound; they cannot forge a binding. Heights, block times and the address history are the servers' word: the page cross-checks every server it reaches, so one dishonest server among honest ones changes nothing, but a reader who reaches only dishonest servers can be shown a wrong age, or a replaced name as current.
 - The demo app runs its "server" in the page, labelled as such, so both sides can be watched. The Node example is a real server.
 
 ## How this was built
