@@ -298,11 +298,13 @@ function welcome({ npub, bch, profile }) {
         ]
       : h("p", {}, bch.status === "unknown"
           ? `Your key is fine, but no Bitcoin Cash server answered (${bch.reason}).`
-          : bch.status === "superseded"
-            ? "The address this key named was later bound to another Nostr key by its owner."
-            : /no identity claim/.test(bch.reason ?? "")
-              ? ["No Bitcoin Cash address is bound to this key yet. ", h("a", { href: `${SITE}#/bind` }, "Bind one on Countersign"), " (one small transaction from your wallet), then sign in again."]
-              : `This key's binding doesn't check out: ${bch.reason}.`),
+          : bch.status === "unchecked"
+            ? `Your binding's signatures check out, but ${bch.reason}: this app won't treat the address as yours until it can.`
+            : bch.status === "superseded"
+              ? "The address this key named was later bound to another Nostr key by its owner."
+              : /no identity claim/.test(bch.reason ?? "")
+                ? ["No Bitcoin Cash address is bound to this key yet. ", h("a", { href: `${SITE}#/bind` }, "Bind one on Countersign"), " (one small transaction from your wallet), then sign in again."]
+                : `This key's binding doesn't check out: ${bch.reason}.`),
     h("button", { onclick: showStart }, "Sign out"),
   );
 }

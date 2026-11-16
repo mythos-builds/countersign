@@ -192,6 +192,9 @@ function statusBox(r) {
         "Both signatures check out and the commitment is in the mempool." + careful);
     case "superseded":
       return h("div", { class: "status bad" }, h("b", {}, "Replaced"), "This address was later bound to another Nostr name, so this binding no longer counts.");
+    case "unchecked":
+      return h("div", { class: "status bad" }, h("b", {}, "Can't tell if this binding is still current"), sentence(r.reason),
+        " Both signatures check out, but this page won't pay the name until it can rule that out.");
     case "error":
       return h("div", { class: "status bad" }, h("b", {}, "Couldn't check this name right now"), sentence(r.reason));
     default:

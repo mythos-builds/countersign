@@ -35,12 +35,12 @@ Trusts nothing it is handed.
 6. Run the BCH virtual machine (libauth, consensus rules: a mined transaction is valid even if non-standard) on the whole transaction with those source outputs. Any failure = invalid.
 7. Refuse key reuse: the BCH public key's x-coordinate must differ from the Nostr public key.
 8. From the address history: confirmations ≥ 1 → `verified`, mempool only → `pending` (both halves valid). `boundSince` = the time in the block header.
-9. Supersession: up to 30 transactions after the commitment in the address history are read; one that passes steps 3–7 for this same address and names another npub makes the binding `superseded`. A transaction merely *sent to* the address cannot pass step 5.
+9. Supersession: the transactions after the commitment in the address history are read, newest first, up to 300; one that passes steps 3–7 for this same address and names another npub makes the binding `superseded`. A transaction merely *sent to* the address cannot pass step 5, but anyone can add such transactions for a few hundred satoshis each, so a binding is `unchecked` when step 9 can't read them all: more than 300 follow the commitment, or the history is unavailable, leaves out the commitment, or lists a transaction (or a later commitment's parent) that no server returns.
 
-Result: `{status, npub, address, txid, confirmations, boundSince, warnings, reason?, supersededBy?}`. `warnings` includes `new` when the commitment is unconfirmed or under 24 h old, and says so when the address history was unavailable (confirmations and newer bindings then unchecked) or longer than step 9 reads.
+Result: `{status, npub, address, txid, confirmations, boundSince, warnings, reason?, supersededBy?}`. `warnings` includes `new` when the commitment is unconfirmed or under 24 h old, and says so when the block height or time was unavailable (confirmations then unchecked).
 
 ## 6. Statuses
-`verified` · `pending` (payable, shown as new) · `superseded` (with the newer npub and txid) · `invalid` (with a reason). A newest claim that names no BCH address means the person unbound: `invalid`, « the newest claim names no BCH address ».
+`verified` · `pending` (payable, shown as new) · `superseded` (with the newer npub and txid) · `unchecked` (both halves valid, but §5.9 couldn't rule out a newer binding; with a reason; never payable, and a login app treats the key as having no address) · `invalid` (with a reason). A newest claim that names no BCH address means the person unbound: `invalid`, « the newest claim names no BCH address ».
 
 **Rotation** needs no extra rule, only the two « newest wins » above, and the bind page offers it once a name is chosen: a name already bound is shown its address and commitment, and may (a) **move to another wallet** (the usual steps: a new commitment, then a claim naming the new address replaces the old claim), or (b) **unbind** (`buildUnbind`: the current identity list without its BCH address and the wall tag, dated after it). A **new Nostr key** binds the same wallet from that key: the newer commitment in the address history makes the old name `superseded` (§5.9).
 
@@ -78,7 +78,7 @@ Deployment notes: tie each nonce to the browser session that asked for it (a coo
 - The wallet shows the data output as raw hex, so the signing prompt says in words what is signed.
 - Relays and Fulcrum servers can hide data, never forge it (signature checks, re-hashing, the VM). Hiding can make a bound name look unbound; it cannot make a false binding pass.
 - A stolen Nostr key can re-point the claim, but not forge a commitment; « bound since » and the `new` warning are the user's defence. A tricked wallet can only attach its own address.
-- A commitment cannot make a verifier do unbounded work: at most 20 inputs (§3.4), at most 30 later transactions read (§5.9), 50 history entries on the chain road (§7).
+- A commitment cannot make a verifier do unbounded work: at most 20 inputs (§3.4), at most 300 later transactions read (§5.9; more gives `unchecked`), 50 history entries on the chain road (§7).
 - Profile data shown from kind 0 is reduced to plain strings; pictures are `https://` only.
 - A receipt can point at anyone's payment: only a `bound` proof names the payer, and amounts come from the chain (§8.3).
 - Remote signers (NIP-46, `lib/remote.mjs`): the Nostr key stays in the signer app; the page holds a throwaway session key only. It connects by a `nostrconnect://` link (QR) whose secret the signer must send back, or by a pasted `bunker://` link, and asks for `get_public_key` and only the kinds it signs (10011, 1, 27235). Every event a signer returns is re-verified on a fresh copy, must carry the identity's key, and must be exactly the event asked for (kind, `created_at`, tags, content); anything else is refused (tested).
@@ -87,10 +87,11 @@ Deployment notes: tie each nonce to the browser session that asked for it (a coo
 Paytaca's view on the on-chain proof type · P2SH, multisig and token-aware bindings · a public directory from the `t` tag · the courtesy PR for `CSG\0` in the protocol registry.
 
 ## 12. Changes from v0
-- The tag is final: `CSG\0` (§3.3). New limits: 20 inputs (§3.4), 30 later transactions (§5.9). Data outputs without the tag are ignored (§3.2). The fee rule is written down (§3.5).
+- The tag is final: `CSG\0` (§3.3). New limits: 20 inputs (§3.4), 300 later transactions (§5.9). Data outputs without the tag are ignored (§3.2). The fee rule is written down (§3.5).
 - Five default relays instead of three; relay hints from nprofile and NIP-05 (§5.1).
 - Fulcrum: one hash-checked answer from any server instead of « two servers or more »; the hash makes extra copies unnecessary (§5.3).
 - A newer claim with no BCH address gives `invalid` with its reason, not `superseded` (§6).
 - Discovery by address is specified as two roads that each lead to the full check (§7).
 - Login is implemented: exact rules for the nonce, the window and the order of the checks, plus deployment notes (§9).
 - Rotation is offered on the bind page: move to another wallet or unbind (`buildUnbind`), and a new Nostr key supersedes the old name from the same wallet (§6).
+- After the review of 2026-11-16: a binding whose later history can't be read in full is `unchecked`, never payable; 30 small payments to the address used to hide a rotation (§5.9, §6).

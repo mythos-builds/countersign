@@ -196,6 +196,49 @@ test("a later commitment signed by the same address supersedes the binding", asy
   assert.equal((await check(chain, second)).status, "verified");
 });
 
+/** A stranger pays the address 546 sat n times, listed in its history from `height` on. No key of the address needed. */
+function strangerPays(chain, key, n, height) {
+  const stranger = bchKey();
+  for (let i = 0; i < n; i++) {
+    const coin = fund(chain, stranger);
+    const tx = {
+      version: 2, locktime: 0,
+      inputs: [{ outpointTransactionHash: L.hexToBin(coin.txid), outpointIndex: 0, sequenceNumber: 0, unlockingBytecode: Uint8Array.of() }],
+      outputs: [{ lockingBytecode: key.lock, valueSatoshis: 546n }, { lockingBytecode: stranger.lock, valueSatoshis: 9_000n }],
+    };
+    chain.touch(key.address, chain.add(signP2pkh(tx, [{ lockingBytecode: stranger.lock, valueSatoshis: coin.satoshis }], stranger.priv)), height + i);
+  }
+}
+
+test("padding the history with payments can't hide a rotation: past 300 later transactions the binding is unchecked, never payable", async () => {
+  const chain = memoryChain();
+  const first = bind(chain, { height: 899_000 });
+  strangerPays(chain, first.key, 40, 899_001); // before the owner rotates (the old window read 30)
+  const second = bind(chain, { key: first.key, height: 899_100 });
+  assert.equal((await check(chain, first)).status, "superseded");
+  strangerPays(chain, first.key, 300, 899_101); // and after: the rotation is now 301st from the newest
+  const r = await check(chain, first);
+  assert.equal(r.status, "unchecked");
+  assert.match(r.reason, /more than 300 transactions follow the commitment, so a newer binding can't be ruled out/);
+  assert.equal((await check(chain, second)).status, "verified"); // exactly 300 after it: all read
+  strangerPays(chain, first.key, 1, 899_401);
+  assert.equal((await check(chain, second)).status, "unchecked");
+});
+
+test("a history that is unavailable, leaves out the commitment, or lists what no server returns makes the binding unchecked", async () => {
+  const chain = memoryChain();
+  const b = bind(chain);
+  assert.match((await check({ ...chain, getHistory: async () => { throw new Error("timeout"); } }, b)).reason, /address history is unavailable/);
+  assert.match((await check({ ...chain, getHistory: async () => [] }, b)).reason, /doesn't list the commitment/);
+  const second = bind(chain, { key: b.key, height: 899_995 });
+  chain.txs.delete(L.binToHex(second.signed.inputs[0].outpointTransactionHash)); // the rotation's parent: gone
+  assert.match((await check(chain, b)).reason, /later commitment's parents couldn't be read/);
+  chain.touch(b.key.address, "ab".repeat(32), 899_996); // listed, never served
+  const r = await check(chain, b);
+  assert.equal(r.status, "unchecked");
+  assert.match(r.reason, /later transaction in the address history couldn't be read/);
+});
+
 test("a claim whose signature doesn't verify is refused", async () => {
   const chain = memoryChain();
   const b = bind(chain);

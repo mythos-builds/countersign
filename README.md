@@ -65,7 +65,7 @@ Where things live: the claim on Nostr relays, the commitment on the Bitcoin Cash
 6. **The signatures themselves.** Run the BCH virtual machine (libauth, consensus rules) on the whole transaction with the real parent outputs. Any failure means invalid.
 7. **No key reuse.** The BCH public key's x-coordinate must differ from the Nostr key.
 8. **Age.** From the address history: at least one confirmation means `verified`; mempool only means `pending` (payable, shown as new). "Bound since" is the block's time.
-9. **Is it still current?** A later transaction from the same address that passes this same check and names another npub makes the binding `superseded`. Anyone can send coins *to* an address, so only a transaction signed *by* it counts.
+9. **Is it still current?** A later transaction from the same address that passes this same check and names another npub makes the binding `superseded`. Anyone can send coins *to* an address, so only a transaction signed *by* it counts. Anyone can also bury a rotation under small payments, so when the later history can't be read in full (more than 300 transactions, or a server that leaves things out) the binding is `unchecked`: never payable, and a login app treats the key as having no address.
 
 Relays and servers can hide data, never forge it: signatures, hashes and the virtual machine decide. The tests in [test/offline.test.mjs](test/offline.test.mjs) try the attacks: someone else's transaction naming you, a transaction sent to the address, sighash NONE and SINGLE, two data outputs, a forged transaction or parent, the same key on both sides, a claim signed by the wrong key, a broken signature.
 
