@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import * as L from "@bitauth/libauth";
 import { generateSecretKey, getPublicKey, nip19 } from "nostr-tools";
-import { parseBch, formatBch, paymentUri, paidTo, buildPayment, buildCommitment, scanWallet, signP2pkh, resolveName, verifiedNip05, DUST } from "../lib/index.mjs";
+import { parseBch, formatBch, paymentUri, paidTo, buildPayment, buildCommitment, scanWallet, signP2pkh, checkSigned, resolveName, verifiedNip05, DUST } from "../lib/index.mjs";
 
 const rand = (n) => crypto.getRandomValues(new Uint8Array(n));
 
@@ -106,6 +106,18 @@ test("the wallet scan follows the gap limit, checks each coin against its parent
   assert.deepEqual(coins.map((c) => [c.satoshis, c.path]), [[5_000n, ["receive", 0]], [7_000n, ["receive", 25]]]);
   assert.equal(change.address, keyAt(1, 1).address);
   assert.deepEqual(change.path, ["change", 1]);
+});
+
+test("after signing, the page checks the coins spent as well as the outputs and the VM", () => {
+  const payer = bchKey(), payee = bchKey();
+  const built = buildPayment({ coins: [coin(payer, 20_000n)], to: payee.address, satoshis: 10_000n, changeLockingBytecode: payer.lock });
+  checkSigned(built, signP2pkh(built.transaction, built.sourceOutputs, payer.priv));
+  // Another coin of the same value and lock (one carrying tokens, say): the outputs match and the VM passes on the built source outputs.
+  const swapped = { ...built.transaction, inputs: built.transaction.inputs.map((i) => ({ ...i, outpointTransactionHash: rand(32) })) };
+  assert.throws(() => checkSigned(built, signP2pkh(swapped, built.sourceOutputs, payer.priv)), /spent other coins/);
+  const richer = { ...built.transaction, outputs: built.transaction.outputs.map((o, i) => (i ? { ...o, lockingBytecode: bchKey().lock } : o)) };
+  assert.throws(() => checkSigned(built, signP2pkh(richer, built.sourceOutputs, payer.priv)), /changed the transaction's outputs/);
+  assert.throws(() => checkSigned(built, signP2pkh(built.transaction, built.sourceOutputs, bchKey().priv)), /doesn't verify/);
 });
 
 test("names: npub, nprofile, hex, nostr: links and profile URLs", async () => {

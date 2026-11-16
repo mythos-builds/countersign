@@ -9,7 +9,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from "nostr-too
 import {
   resolveName, verifiedNip05, relayReader, fulcrumChain, verifyBinding, verifiedCopy, parseBch, formatBch, paymentUri, paidTo, scanWallet,
   buildPayment, buildCommitment, buildClaim, buildUnbind, sameAddress, findByAddress, decodeP2pkhAddress, npubToHex, listWall, DEFAULT_RELAYS, DUST,
-  receiptTemplate, listReceipts, explorerUrl, connectLink, viaLink, viaBunker,
+  receiptTemplate, listReceipts, explorerUrl, connectLink, viaLink, viaBunker, sameEvent, checkSigned,
 } from "../lib/index.mjs";
 
 const PROJECT = "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95";
@@ -31,6 +31,13 @@ function h(tag, attrs = {}, ...kids) {
 const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
 
 const shortKey = (s) => `${s.slice(0, 12)}…${s.slice(-6)}`;
+/** What any signer (extension, signer app, key in this browser) gives back must verify for this key and be exactly what was asked. */
+async function signAsAsked(id, template, what) {
+  const event = verifiedCopy(await id.sign(structuredClone(template)));
+  if (!event || event.pubkey !== id.pubkey) throw new Error(`the signed ${what} doesn't verify for this key`);
+  if (!sameEvent(event, template)) throw new Error(`your signer signed another ${what} than the one asked for`);
+  return event;
+}
 const sentence = (s) => (s ? s[0].toUpperCase() + s.slice(1) + (/[.!?]$/.test(s) ? "" : ".") : "");
 const spinner = () => h("div", { class: "spinner", role: "status", "aria-label": "Working" });
 const initial = (name) => h("div", { class: "avatar", "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
@@ -383,8 +390,7 @@ function receiptOffer({ txid, sats }, payee, name, onPosted) {
       if (id.via === "remote") fill(el, spinner(), h("p", {}, "Approve the note in your signer app…"));
       if (id.pubkey === payee.pubkey) throw new Error(`that is ${name}'s own Nostr name, and a payee's own receipts aren't listed`);
       const link = location.protocol === "https:" ? `${location.origin}${location.pathname}#/${payee.npub}` : undefined; // never a local address in a public note
-      const event = verifiedCopy(await id.sign(receiptTemplate({ payee: payee.npub, txid, sats, link })));
-      if (!event || event.pubkey !== id.pubkey) throw new Error("the signed note doesn't verify for this key");
+      const event = await signAsAsked(id, receiptTemplate({ payee: payee.npub, txid, sats, link }), "note");
       // NIP-65: the payer's outbox, the payee's inbox, and the defaults every reader here asks.
       const [outbox, inbox] = await Promise.all([reader.writeRelays(id.pubkey).catch(() => []), reader.readRelays(payee.pubkey).catch(() => [])]);
       const targets = [...new Set([...outbox.slice(0, 5), ...inbox.slice(0, 5), ...DEFAULT_RELAYS])];
@@ -518,10 +524,7 @@ async function signAndSend(dapp, built, userPrompt) {
   const raw = L.hexToBin(res.signedTransaction);
   const signed = L.decodeTransaction(raw);
   if (typeof signed === "string") throw new Error(`the wallet sent back something that isn't a transaction (${signed})`);
-  const out = (o) => `${o.valueSatoshis}:${L.binToHex(o.lockingBytecode)}`;
-  if (signed.outputs.map(out).join() !== built.transaction.outputs.map(out).join()) throw new Error("the wallet changed the transaction's outputs, so this page won't send it");
-  const ok = L.createVirtualMachineBch(true).verify({ sourceOutputs: built.sourceOutputs, transaction: signed });
-  if (ok !== true) throw new Error(`the signed transaction doesn't verify: ${ok}`);
+  checkSigned(built, signed);
   // The wallet broadcasts it too (broadcast: true); a second copy is harmless and covers a wallet that didn't.
   await (await chain()).broadcast(res.signedTransaction).catch((e) => {
     if (!/already|known|exists|in.?mempool/i.test(e.message)) throw e;
@@ -684,8 +687,7 @@ function showBind() {
     const reader = relayReader();
     try {
       const [{ claim: current }, outbox] = await Promise.all([reader.fetchClaim(id.pubkey), reader.writeRelays(id.pubkey).catch(() => [])]);
-      const event = verifiedCopy(await id.sign(buildUnbind(current)));
-      if (!event || event.pubkey !== id.pubkey) throw new Error("the signed claim doesn't verify for this key");
+      const event = await signAsAsked(id, buildUnbind(current), "claim");
       const targets = [...new Set([...outbox.slice(0, 5), ...DEFAULT_RELAYS])];
       const results = await reader.publish(event, targets);
       const accepted = targets.filter((_, i) => results[i].status === "fulfilled");
@@ -760,8 +762,7 @@ function showBind() {
     const reader = relayReader();
     try {
       const [{ claim: current }, outbox] = await Promise.all([reader.fetchClaim(id.pubkey), reader.writeRelays(id.pubkey).catch(() => [])]);
-      const event = verifiedCopy(await id.sign(buildClaim(current, address, txid, { wall: listMe })));
-      if (!event || event.pubkey !== id.pubkey) throw new Error("the signed claim doesn't verify for this key");
+      const event = await signAsAsked(id, buildClaim(current, address, txid, { wall: listMe }), "claim");
       const targets = [...new Set([...outbox.slice(0, 5), ...DEFAULT_RELAYS])];
       const extra = [];
       if (id.sk && !outbox.length) {

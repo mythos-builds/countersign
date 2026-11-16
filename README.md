@@ -104,7 +104,7 @@ For a real deployment: tie each nonce to the browser session that asked for it, 
 
 `#/<name>` resolves the name, runs the full check, then offers two rails:
 
-- **Wallet app (WizardConnect):** the wallet shares public keys only; the page finds its coins, builds the payment, the wallet shows it and signs. The page checks the wallet signed exactly the outputs it built before sending.
+- **Wallet app (WizardConnect):** the wallet shares public keys only; the page finds its coins, builds the payment, the wallet shows it and signs. The page checks the wallet spent exactly the coins and signed exactly the outputs it built before sending.
 - **Any wallet (QR):** a `bitcoincash:` payment link; the page sees the payment arrive by itself through a Fulcrum address subscription.
 
 A phone often drops the page's connections while you approve in the wallet app: the page reconnects and looks again as soon as it is shown.

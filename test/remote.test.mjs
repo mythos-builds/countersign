@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateSecretKey, getPublicKey, finalizeEvent } from "nostr-tools";
 import { getConversationKey, encrypt, decrypt } from "nostr-tools/nip44";
-import { connectLink, viaLink, viaBunker, buildClaim } from "../lib/index.mjs";
+import { connectLink, viaLink, viaBunker, buildClaim, sameEvent } from "../lib/index.mjs";
 
 const NC = 24133;
 const RELAYS = ["wss://relay.example"];
@@ -122,4 +122,13 @@ test("a signer that changes the event is refused", async () => {
 test("a pasted string that isn't a bunker link is refused before any network", async () => {
   await assert.rejects(viaBunker("npub1nothing"), /isn't a bunker/);
   await assert.rejects(viaBunker(""), /isn't a bunker/);
+});
+
+test("any signer's answer is held to the template: only the key, id and signature may be added (the pages check every signer)", () => {
+  const template = buildClaim(null, "bitcoincash:qz26kltcxsatnd0t6td6dp0d6y27tt6tqsm0dczvj7", "ab".repeat(32), { now: 1_800_000_000 });
+  const sk = generateSecretKey();
+  assert.ok(sameEvent(finalizeEvent(structuredClone(template), sk), template));
+  for (const change of [{ kind: 1 }, { created_at: 1_800_000_001 }, { content: "x" }, { tags: [["i", "bitcoincash:qqother", "cd".repeat(32)]] }]) {
+    assert.equal(sameEvent(finalizeEvent({ ...structuredClone(template), ...change }, sk), template), false, JSON.stringify(change));
+  }
 });
