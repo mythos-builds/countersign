@@ -365,6 +365,27 @@ test("discovery by address: a rebound address gives its newest name, a stranger'
   assert.equal(r.npub, second.id.npub);
 });
 
+test("discovery by address: a stranger's tagged payment to an unbound address names no one, through either road", async () => {
+  const chain = memoryChain();
+  const victim = bchKey(), stranger = bchKey(), strangerId = nostrKey();
+  const coin = fund(chain, stranger);
+  const tx = {
+    version: 2, locktime: 0,
+    inputs: [{ outpointTransactionHash: L.hexToBin(coin.txid), outpointIndex: 0, sequenceNumber: 0, unlockingBytecode: Uint8Array.of() }],
+    outputs: [
+      { lockingBytecode: dataOutputBytecode(strangerId.npub), valueSatoshis: 0n },
+      { lockingBytecode: victim.lock, valueSatoshis: 546n },
+      { lockingBytecode: stranger.lock, valueSatoshis: 9_000n },
+    ],
+  };
+  const txid = chain.add(signP2pkh(tx, [{ lockingBytecode: stranger.lock, valueSatoshis: coin.satoshis }], stranger.priv));
+  chain.touch(victim.address, txid, 899_995);
+  const strangerClaim = finalizeEvent(buildClaim(null, victim.address, txid), strangerId.sk);
+  for (const claims of [[], [strangerClaim]]) { // the chain road alone, then both roads
+    assert.equal(await findByAddress(victim.address, { nostr: discoverer(claims), chain, now: T0 + 3 * 86400 }), null);
+  }
+});
+
 
 test("the wall lists a name only while its newest claim keeps the tag and its binding verifies", async () => {
   const chain = memoryChain();
