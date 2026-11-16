@@ -408,3 +408,15 @@ test("the wall lists a name only while its newest claim keeps the tag and its bi
   assert.equal(rows[0].status, "verified");
   assert.equal(rows[0].address, listed.key.address);
 });
+
+test("junk tagged claims can't empty the wall: it keeps looking, and claims dated in the future are ignored", async () => {
+  const chain = memoryChain();
+  const real = bind(chain);
+  const junk = (n, at) => Array.from({ length: n }, (_, i) => finalizeEvent(buildClaim(null, bchKey().address, "ab".repeat(32), { now: at + i }), nostrKey().sk));
+  const all = [real.claim, ...junk(40, real.claim.created_at + 1), ...junk(5, real.claim.created_at + 100_000)]; // newer, and far ahead
+  const nostr = { wallClaims: async () => all, fetchClaim: async (pk) => ({ claim: all.find((c) => c.pubkey === pk) ?? null }) };
+  assert.deepEqual((await listWall({ nostr, chain, now: T0 + 3 * 86400 })).map((r) => r.npub), [real.id.npub]);
+  const more = [bind(chain), bind(chain)];
+  all.push(...more.map((b) => b.claim));
+  assert.equal((await listWall({ nostr, chain, now: T0 + 3 * 86400, limit: 2 })).length, 2); // stops once the wall is full
+});
