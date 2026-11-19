@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19, nip98 } from "nostr-tools";
 import * as L from "@bitauth/libauth";
 import { loginGate, loginTemplate, authorizationHeader, LOGIN_KIND, signP2pkh, p2pkhAddress, findAddressPath, walletProofTransaction, TAG } from "../lib/index.mjs";
+import { toUint8Array, toBigInt } from "@wizardconnect/core";
+import { sourceOutputToRelay, transactionToHex } from "@wizardconnect/core/hdwalletv1-serialize";
 
 const URL_ = "https://app.example/login";
 let now = 1_800_000_000;
@@ -164,6 +166,43 @@ test("wallet proof: a wallet that changes the transaction, garbage, or a proof m
   const elsewhere = loginGate({ url: "https://other.example/login", clock: () => now }).walletChallenge({ npub: NPUB, address: ADDRESS });
   assert.match(g.walletCheck(walletSigns(elsewhere)).error, /never issued here/);
   assert.ok(g.walletCheck(walletSigns(c)).publicKey);
+});
+
+// What Paytaca does with a WizardConnect sign request, from its public source (paytaca-app, read 2026-11-19):
+// src/wallet/wizardconnect/service.js signRequest + hydrateSourceOutput, src/wallet/bch-sign.js (P2PKH branch).
+function paytacaSigns(c, path, key = bchKey) {
+  const { inputs, outputs, version, locktime } = c.transaction;
+  const request = JSON.parse(JSON.stringify({ // what the page sends, as it travels: JSON over WizardConnect's relays
+    transaction: { transaction: transactionToHex(inputs, outputs, version, locktime), sourceOutputs: c.sourceOutputs.map(sourceOutputToRelay), broadcast: false },
+    inputPaths: [[0, path[0], path[1]]],
+  }));
+  const transaction = L.decodeTransaction(L.hexToBin(request.transaction.transaction));
+  assert.notEqual(typeof transaction, "string");
+  const sourceOutputs = request.transaction.sourceOutputs.map((so) => ({
+    outpointTransactionHash: toUint8Array(so.outpointTransactionHash), outpointIndex: so.outpointIndex, sequenceNumber: so.sequenceNumber,
+    valueSatoshis: toBigInt(so.valueSatoshis), lockingBytecode: toUint8Array(so.lockingBytecode),
+    ...(so.unlockingBytecode !== undefined && so.unlockingBytecode !== "" && so.unlockingBytecode?.length !== 0 && { unlockingBytecode: toUint8Array(so.unlockingBytecode) }),
+  }));
+  assert.ok({ receive: 0, change: 1, defi: 7 }[request.inputPaths[0][1]] !== undefined, "a path name Paytaca knows");
+  assert.ok(!sourceOutputs[0].unlockingBytecode?.length, "Paytaca signs a P2PKH input only when its source output has no unlocking bytecode");
+  const hashType = L.SigningSerializationFlag.allOutputs | L.SigningSerializationFlag.utxos | L.SigningSerializationFlag.forkId; // 0x61
+  const sighash = L.hash256(L.generateSigningSerializationBCH({ inputIndex: 0, sourceOutputs, transaction },
+    { coveredBytecode: sourceOutputs[0].lockingBytecode, signingSerializationType: Uint8Array.of(hashType) }));
+  const sig = Uint8Array.from([...L.secp256k1.signMessageHashSchnorr(key, sighash), hashType]);
+  const pub = L.secp256k1.derivePublicKeyCompressed(key);
+  const unlocked = { ...transaction, inputs: [{ ...transaction.inputs[0], unlockingBytecode: L.hexToBin(`41${L.binToHex(sig)}21${L.binToHex(pub)}`) }] };
+  const generated = L.generateTransaction(unlocked);
+  assert.ok(generated.success, JSON.stringify(generated.errors));
+  return L.binToHex(L.encodeTransaction(generated.transaction)); // broadcast: false → this goes back to the page, unsent
+}
+
+test("wallet proof: Paytaca's way of signing is accepted (relay format both ways, SIGHASH_ALL|UTXOS|FORKID)", () => {
+  const g = gate();
+  const c = g.walletChallenge({ npub: NPUB, address: ADDRESS });
+  const signed = paytacaSigns(c, ["receive", 0]);
+  assert.equal(L.decodeTransaction(L.hexToBin(signed)).inputs[0].unlockingBytecode[65], 0x61);
+  assert.deepEqual(g.walletCheck(signed), { npub: NPUB, address: ADDRESS, publicKey: L.binToHex(bchPub) });
+  assert.match(g.walletCheck(signed).error, /already used/);
 });
 
 test("wallet proof: an answer after five minutes has expired, and the code is spent", () => {

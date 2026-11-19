@@ -22,7 +22,7 @@ The site is static files. Every check runs in your browser; relays and public Bi
 | 2 | Cryptographic binding | #/bind, steps 3 and 4: the BCH wallet signs a transaction that names the Nostr key, the Nostr key signs a claim that names the address and that transaction. Two different keys, each signing a statement about the other. |
 | 3 | Discovery without a central database | The search box on the [site](https://countersign.cash/): an npub, nprofile, `nostr:` link or `name@domain` (NIP-05), or a BCH address, found through Nostr relays or from the chain alone. |
 | 4 | Independent verification and challenge-response login | Every lookup runs the full check below in your browser. [demo-login/](https://countersign.cash/demo-login/) is another app that signs you in with a NIP-98 challenge, then checks your binding; [examples/login-server.mjs](examples/login-server.mjs) does the same as a real Node server. The demo app can then ask your wallet to answer too: it signs a one-time code in a transaction that can never be broadcast. |
-| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 62 tests. |
+| 5 | Working demo, source, setup, architecture and crypto docs | This README, [spec/SPEC.md](spec/SPEC.md), the source in `lib/` and `app/`, 78 tests. |
 
 Stretch goals touched: **payments by name** (the pay page, two rails), **BCH-backed commitments** (why a transaction, below), **key rotation** (on the bind page, a name already bound can move to another wallet or unbind; a new Nostr key that binds the same wallet supersedes the old name), **interoperability** (a library and a spec built on NIP-39, NIP-98, NIP-05 and NIP-07).
 
@@ -127,7 +127,7 @@ Node 22 or newer (the Fulcrum client uses the built-in WebSocket).
 git clone https://github.com/mythos-builds/countersign
 cd countersign
 npm ci
-npm test              # 62 tests, offline
+npm test              # 78 tests, offline
 npm run dev           # the site and the demo app on a local server
 npm run build         # static build into dist/ (any static host works)
 ```
@@ -176,7 +176,7 @@ node scripts/bind.mjs --wif-file <f> --nostr-key-file <f> [--chipnet] [--dry-run
 ## Limits, said plainly
 
 - P2PKH addresses only for now; P2SH and multisig are not covered.
-- Binding in the browser needs a wallet that speaks WizardConnect. Paytaca paid through the page and bound a name on mainnet (November 14). Cashonize and our own reference wallet also sign the current request format (November 14: a test signature on a made-up coin, never broadcast). On an iPhone, Paytaca opens no `wiz://` link, so the page offers the connection link to paste in Paytaca (Apps → WizardConnect → Paste URL); tested end to end on November 14 (an iPhone alone, Safari and Paytaca, a real payment through the page).
+- Binding in the browser needs a wallet that speaks WizardConnect. Paytaca paid through the page and bound a name on mainnet (November 14). Cashonize and our own reference wallet also sign the current request format (November 14: a test signature on a made-up coin, never broadcast). On an iPhone, Paytaca opens no `wiz://` link, so the page offers the connection link to paste in Paytaca (Apps → WizardConnect → Paste URL); tested end to end on November 14 (an iPhone alone, Safari and Paytaca, a real payment through the page). The wallet's answer at login (`/demo-login/`) is tested against Paytaca's own signing steps, copied from its public source (SIGHASH_ALL|UTXOS|FORKID, WizardConnect's relay format both ways: `test/login.test.mjs`); a live run with Paytaca is next.
 - Wallets show the data output as raw bytes, so the page says in words what the wallet is asked to sign.
 - Relays or servers that are down or hiding data can make a bound name look unbound; they cannot forge a binding. Heights, block times and the address history are the servers' word: the page cross-checks every server it reaches, so one dishonest server among honest ones changes nothing, but a reader who reaches only dishonest servers can be shown a wrong age, or a replaced name as current.
 - The demo app runs its "server" in the page, labelled as such, so both sides can be watched. The Node example is a real server.
