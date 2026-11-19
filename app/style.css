@@ -42,6 +42,37 @@ button:disabled { opacity: 0.5; cursor: default; }
 .pay { background: var(--accent); color: #062b1f; border-color: var(--accent); width: 100%; font-size: 1.1rem; padding: 1rem; }
 .link { background: none; border: none; padding: 0.2rem; color: var(--muted); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
 .try { color: var(--muted); margin-top: 1.2rem; }
+
+/* The picture of a binding on the home page (Countersign's own): the two signatures appear in the order a browser checks them. */
+.demo { display: block; margin: 2rem 0 0.4rem; padding: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ink); text-decoration: none; }
+.demo:hover, .demo:focus-visible { border-color: var(--accent); }
+.demo p { margin: 0; }
+.sig { position: relative; padding: 0.7rem 2.6rem 0.75rem 0.9rem; border-radius: 12px; background: var(--code); }
+.sig .by { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.95rem; }
+.sig .said { margin-top: 0.15rem; color: var(--muted); font-size: 0.86rem; overflow-wrap: anywhere; }
+.sig code { background: none; padding: 0; color: var(--ink); white-space: nowrap; word-break: normal; }
+.dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex: none; }
+.dot.bch { background: #0ac18e; }
+.dot.nostr { background: #8e44ef; }
+.tick { position: absolute; right: 0.8rem; top: calc(50% - 0.75rem); width: 1.5rem; height: 1.5rem; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: #062b1f; font-weight: 700; font-size: 0.85rem; }
+.vouch { padding: 0.35rem 0; text-align: center; color: var(--muted); font-size: 0.85rem; }
+.demo .verdict { margin-top: 0.8rem; padding: 0.6rem 0.9rem; border-radius: 12px; background: var(--code); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-ink); font-weight: 600; }
+.demo .verdict .mark { margin-right: 0.6em; }
+.demo .go { margin-top: 0.7rem; color: var(--muted); font-size: 0.85rem; text-decoration: underline; text-underline-offset: 3px; }
+@media (prefers-reduced-motion: no-preference) {
+  .demo .s1, .demo .vouch, .demo .s2, .demo .verdict { animation: rise 0.5s ease-out both; }
+  .demo .s1 { animation-delay: 0.2s; }
+  .demo .s1 .tick { animation: pop 0.35s ease-out 0.8s both; }
+  .demo .vouch { animation-delay: 1.2s; }
+  .demo .s2 { animation-delay: 1.5s; }
+  .demo .s2 .tick { animation: pop 0.35s ease-out 2.1s both; }
+  .demo .verdict { animation-delay: 2.6s; }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pop { from { opacity: 0; transform: scale(0.4); } 70% { transform: scale(1.15); } }
 .error { color: var(--bad); overflow-wrap: anywhere; }
 .muted { color: var(--muted); }
 

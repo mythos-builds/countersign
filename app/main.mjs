@@ -13,6 +13,7 @@ import {
 } from "../lib/index.mjs";
 
 const PROJECT = "npub1v2zlnx5g0m847j4k34d30az2dykjwrlazp68fqwe3c0nekaqltkqd23d95";
+const PROJECT_ADDRESS = "bitcoincash:qz26kltcxsatnd0t6td6dp0d6y27tt6tqsm0dczvj7";   // its bound address, for the picture on the home page
 const DEFAULT_AMOUNT = "0.0001";
 const DEMO_KEY = "countersign-demo-identity";
 const view = document.getElementById("view");
@@ -96,10 +97,27 @@ function showHome(error, value = "") {
     h("form", { class: "find", onsubmit: (e) => { e.preventDefault(); if (input.value.trim()) go(input.value.trim()); } },
       input, h("button", { type: "submit", class: "primary" }, "Find")),
     error ? h("p", { class: "error", role: "alert" }, error) : null,
-    h("p", { class: "try" }, "Try it with ", h("a", { href: `#/${PROJECT}` }, "Countersign's own name"), "."),
+    bindingCard(),
     h("p", { class: "try" }, "Have a Nostr name? ", h("a", { href: "#/bind" }, "Bind it to your Bitcoin Cash address"), " in two signatures."),
     h("p", { class: "try" }, "Who's here already? ", h("a", { href: "#/wall" }, "See the wall"), ".")));
   if (!matchMedia("(pointer: coarse)").matches) input.focus();
+}
+
+/** The home page's picture of a binding: Countersign's own, its two signatures in the order a browser checks them.
+ *  Tapping it runs the real check on the name page. */
+function bindingCard() {
+  return h("a", { class: "demo", href: `#/${PROJECT}`, "aria-label": "Countersign's own name: both keys signed. Open it to check both signatures live." },
+    h("div", { class: "sig s1" },
+      h("p", { class: "by" }, h("span", { class: "dot bch" }), "The BCH wallet signs"),
+      h("p", { class: "said" }, "a tiny mainnet transaction: “Verifying that I control the following Nostr public key: ", h("code", {}, shortKey(PROJECT)), "”"),
+      h("span", { class: "tick", "aria-hidden": "true" }, "✓")),
+    h("p", { class: "vouch", "aria-hidden": "true" }, "⇅ each key vouches for the other"),
+    h("div", { class: "sig s2" },
+      h("p", { class: "by" }, h("span", { class: "dot nostr" }), "The Nostr key signs"),
+      h("p", { class: "said" }, "its identity list, naming ", h("code", {}, shortKey(PROJECT_ADDRESS.replace(/^bitcoincash:/, ""))), " and that transaction"),
+      h("span", { class: "tick", "aria-hidden": "true" }, "✓")),
+    h("p", { class: "verdict" }, h("span", { class: "mark" }, "✓✓"), "Your browser checks both. Then you pay."),
+    h("p", { class: "go" }, "This is Countersign's own name: tap to check it live →"));
 }
 
 // ── Paying a name ────────────────────────────────────────────────────────────
